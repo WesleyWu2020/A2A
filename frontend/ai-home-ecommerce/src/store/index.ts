@@ -11,6 +11,10 @@ import {
   MemoryTag,
   SpaceProfile,
   ImplicitPreferencePrompt,
+  ProjectDesign,
+  ProjectContext,
+  FavoriteItem,
+  SkillInvocation,
 } from '@/types';
 import { apiClient, getWebSocketClient } from '@/lib/api';
 
@@ -115,6 +119,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
             timestamp: new Date().toISOString(),
             type: 'text',
           });
+        }
+
+        // 告知用户当前活跃项目
+        const activeProjectName = data.active_project_name as string | undefined;
+        if (activeProjectName) {
+          addMessage({
+            id: `${Date.now()}-project-hint`,
+            role: 'system',
+            content: `📂 Project: ${activeProjectName} — budget, style and room constraints applied.`,
+            timestamp: new Date().toISOString(),
+            type: 'text',
+          });
+        }
+
+        // Skills 校验结果
+        const skillWarnings = data.skill_warnings as string[] | undefined;
+        if (skillWarnings && skillWarnings.length > 0) {
+          addMessage({
+            id: `${Date.now()}-skill-warn`,
+            role: 'system',
+            content: `⚠️ Skills Check: ${skillWarnings.join(' | ')}`,
+            timestamp: new Date().toISOString(),
+            type: 'text',
+          });
+        }
+        const skillInvocations = data.skill_invocations as SkillInvocation[] | undefined;
+        if (skillInvocations) {
+          useProjectStore.getState().setLastSkillInvocations(skillInvocations);
         }
 
         // 添加 AI 回复（后端返回完整 ChatMessage 对象）
@@ -570,4 +602,121 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       console.warn('Failed to update nickname:', e);
     }
   },
+}));
+
+// ==================== Project Store ====================
+
+interface ProjectState {
+  projects: ProjectDesign[];
+  activeProjectId: string | null;
+  activeProject: ProjectDesign | null;
+  isLoading: boolean;
+  lastSkillInvocations: SkillInvocation[];
+
+  // Actions
+  loadProjects: () => Promise<void>;
+  createProject: (name: string, icon?: string, context?: ProjectContext) => Promise<ProjectDesign | null>;
+  updateProject: (projectId: string, patch: { name?: string; icon?: string; context?: ProjectContext }) => Promise<void>;
+  deleteProject: (projectId: string) => Promise<void>;
+  switchProject: (projectId: string) => Promise<void>;
+  addFavorite: (productId: string, productName: string, price?: number, imageUrl?: string, reason?: string) => Promise<void>;
+  removeFavorite: (productId: string) => Promise<void>;
+  setLastSkillInvocations: (invocations: SkillInvocation[]) => void;
+}
+
+export const useProjectStore = create<ProjectState>((set, get) => ({
+  projects: [],
+  activeProjectId: null,
+  activeProject: null,
+  isLoading: false,
+  lastSkillInvocations: [],
+
+  loadProjects: async () => {
+    set({ isLoading: true });
+    try {
+      const res = await apiClient.listProjects(DEMO_USER_ID);
+      if (res.success && res.data) {
+        const projects = res.data.projects || [];
+        const activeId = res.data.active_project_id;
+        const active = projects.find((p) => p.project_id === activeId) || null;
+        set({ projects, activeProjectId: activeId, activeProject: active });
+      }
+    } catch (e) {
+      console.warn('Failed to load projects:', e);
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  createProject: async (name, icon = '🏠', context) => {
+    try {
+      const res = await apiClient.createProject(DEMO_USER_ID, name, icon, context);
+      if (res.success && res.data) {
+        await get().loadProjects();
+        return res.data;
+      }
+    } catch (e) {
+      console.warn('Failed to create project:', e);
+    }
+    return null;
+  },
+
+  updateProject: async (projectId, patch) => {
+    try {
+      await apiClient.updateProject(projectId, patch);
+      await get().loadProjects();
+    } catch (e) {
+      console.warn('Failed to update project:', e);
+    }
+  },
+
+  deleteProject: async (projectId) => {
+    try {
+      await apiClient.deleteProject(projectId, DEMO_USER_ID);
+      await get().loadProjects();
+    } catch (e) {
+      console.warn('Failed to delete project:', e);
+    }
+  },
+
+  switchProject: async (projectId) => {
+    try {
+      await apiClient.setActiveProject(DEMO_USER_ID, projectId);
+      const { projects } = get();
+      const active = projects.find((p) => p.project_id === projectId) || null;
+      set({ activeProjectId: projectId, activeProject: active });
+    } catch (e) {
+      console.warn('Failed to switch project:', e);
+    }
+  },
+
+  addFavorite: async (productId, productName, price, imageUrl, reason) => {
+    const { activeProjectId } = get();
+    if (!activeProjectId) return;
+    try {
+      await apiClient.addFavorite(DEMO_USER_ID, activeProjectId, {
+        product_id: productId,
+        product_name: productName,
+        price,
+        image_url: imageUrl,
+        reason,
+      });
+      await get().loadProjects();
+    } catch (e) {
+      console.warn('Failed to add favorite:', e);
+    }
+  },
+
+  removeFavorite: async (productId) => {
+    const { activeProjectId } = get();
+    if (!activeProjectId) return;
+    try {
+      await apiClient.removeFavorite(DEMO_USER_ID, activeProjectId, productId);
+      await get().loadProjects();
+    } catch (e) {
+      console.warn('Failed to remove favorite:', e);
+    }
+  },
+
+  setLastSkillInvocations: (invocations) => set({ lastSkillInvocations: invocations }),
 }));

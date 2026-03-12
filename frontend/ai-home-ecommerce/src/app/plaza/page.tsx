@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
@@ -16,7 +16,7 @@ import {
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
 import { API_BASE_URL } from '@/lib/api';
-import { useChatStore } from '@/store';
+import { useChatStore, useMemoryStore } from '@/store';
 import { PlazaBanner } from './components/PlazaBanner';
 import { ProductCard } from './components/ProductCard';
 import { AchievementCard } from './components/AchievementCard';
@@ -27,6 +27,23 @@ import { ProductDetailModal } from './components/ProductDetailModal';
 const CATEGORY_PREFERENCES = ['Furniture', 'Home Decoration', 'Lighting'];
 const STYLE_PREFERENCES = ['modern', 'farmhouse', 'industrial'];
 const PREFERENCE_OPTIONS = [...CATEGORY_PREFERENCES, ...STYLE_PREFERENCES];
+
+// Map profile tag keys to supported product style values
+const PROFILE_TAG_TO_STYLE: Record<string, string> = {
+  minimalist: 'Minimalist',
+  mid_century: 'Mid-Century',
+  scandinavian: 'Modern',
+  prefers_wood: 'Farmhouse',
+  cold_sensitive: 'Modern',
+};
+
+// Profile tags that correspond to a display-level style preference button
+const PROFILE_TAG_TO_PREF: Record<string, string> = {
+  minimalist: 'modern',
+  mid_century: 'modern',
+  scandinavian: 'modern',
+  prefers_wood: 'farmhouse',
+};
 
 // 类型定义
 interface PlazaProduct {
@@ -126,13 +143,25 @@ const itemVariants = {
   }
 };
 
+const SCROLL_TOP_OFFSET = 84;
+
+function scrollToElementWithOffset(node: HTMLElement | null) {
+  if (!node) return;
+  const targetY = node.getBoundingClientRect().top + window.scrollY - SCROLL_TOP_OFFSET;
+  window.scrollTo({ top: Math.max(targetY, 0), behavior: 'smooth' });
+}
+
 // API 调用
 async function fetchPlazaData({
   sessionId,
-  preference,
+  preferenceCategory,
+  preferenceStyle,
+  profileTags,
 }: {
   sessionId?: string | null;
-  preference?: string;
+  preferenceCategory?: string;
+  preferenceStyle?: string;
+  profileTags?: string[];
 }): Promise<PlazaData | null> {
   try {
     const params = new URLSearchParams();
@@ -141,13 +170,14 @@ async function fetchPlazaData({
       params.set('session_id', sessionId);
     }
 
-    if (preference) {
-      if (CATEGORY_PREFERENCES.includes(preference)) {
-        params.set('preference_category', preference);
-      }
-      if (STYLE_PREFERENCES.includes(preference)) {
-        params.set('preference_style', preference);
-      }
+    if (preferenceCategory) {
+      params.set('preference_category', preferenceCategory);
+    }
+    if (preferenceStyle) {
+      params.set('preference_style', preferenceStyle);
+    }
+    if (profileTags && profileTags.length > 0) {
+      params.set('profile_tags', profileTags.join(','));
     }
 
     const query = params.toString();
@@ -172,13 +202,73 @@ export default function PlazaPage() {
   const [error, setError] = useState<string | null>(null);
   const [preference, setPreference] = useState<string>('');
   const [selectedProduct, setSelectedProduct] = useState<PlazaProduct | null>(null);
+  const [pendingCategoryJump, setPendingCategoryJump] = useState<string | null>(null);
+  const personalizedSectionRef = useRef<HTMLElement | null>(null);
+  const categorySectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const sessionId = useChatStore((state) => state.sessionId);
+  const userMemory = useMemoryStore((state) => state.userMemory);
+  const loadUserMemory = useMemoryStore((state) => state.loadUserMemory);
+
+  // Load user profile on mount
+  useEffect(() => {
+    if (!userMemory) {
+      void loadUserMemory();
+    }
+  }, [userMemory, loadUserMemory]);
+
+  // Derive the profile style from user's memory tags
+  const profileStyle = useMemo(() => {
+    if (!userMemory?.tags) return '';
+    for (const tag of userMemory.tags) {
+      if (PROFILE_TAG_TO_STYLE[tag.key]) {
+        return PROFILE_TAG_TO_STYLE[tag.key];
+      }
+    }
+    return '';
+  }, [userMemory]);
+
+  // Set of preference-button keys that match the user profile (for sparkle indicator)
+  const profileMatchedPrefs = useMemo(() => {
+    const matched = new Set<string>();
+    if (!userMemory?.tags) return matched;
+    for (const tag of userMemory.tags) {
+      const pref = PROFILE_TAG_TO_PREF[tag.key];
+      if (pref) matched.add(pref);
+    }
+    return matched;
+  }, [userMemory]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    const plazaData = await fetchPlazaData({ sessionId, preference });
+    // Determine category & style to send, fusing clicked preference with profile
+    let category: string | undefined;
+    let style: string | undefined;
+
+    if (preference) {
+      // User explicitly clicked a tag — short-term intent takes priority
+      if (CATEGORY_PREFERENCES.includes(preference)) {
+        category = preference;
+        // Fuse with profile style when category is clicked
+        style = profileStyle || undefined;
+      } else if (STYLE_PREFERENCES.includes(preference)) {
+        // Style clicked — override profile style, no specific category
+        style = preference;
+      }
+    } else if (profileStyle) {
+      // No explicit click, but profile has style — auto-recommend
+      style = profileStyle;
+    }
+
+    const profileTagKeys = userMemory?.tags?.map((t) => t.key) ?? [];
+
+    const plazaData = await fetchPlazaData({
+      sessionId,
+      preferenceCategory: category,
+      preferenceStyle: style,
+      profileTags: profileTagKeys,
+    });
     if (plazaData) {
       setData(plazaData);
     } else {
@@ -186,11 +276,40 @@ export default function PlazaPage() {
     }
 
     setLoading(false);
-  }, [preference, sessionId]);
+  }, [preference, sessionId, profileStyle, userMemory]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  // For style chips, scroll to personalized section after data updates.
+  useEffect(() => {
+    if (!preference || loading || !data || !STYLE_PREFERENCES.includes(preference)) {
+      return;
+    }
+
+    const hasPersonalized = data.sections.some((section) => section.type === 'personalized');
+    if (!hasPersonalized) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      scrollToElementWithOffset(personalizedSectionRef.current);
+    });
+  }, [preference, loading, data]);
+
+  // For category chips, jump to the matching built-in category section.
+  useEffect(() => {
+    if (!pendingCategoryJump || loading || !data) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      const target = categorySectionRefs.current[pendingCategoryJump];
+      scrollToElementWithOffset(target);
+      setPendingCategoryJump(null);
+    });
+  }, [pendingCategoryJump, loading, data]);
 
   if (loading) {
     return (
@@ -244,18 +363,34 @@ export default function PlazaPage() {
         >
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-sm text-slate-600">I&apos;m interested in:</span>
-            {PREFERENCE_OPTIONS.map((option) => (
-              <button
-                key={option}
-                onClick={() => setPreference(preference === option ? '' : option)}
-                className={`rounded-full px-4 py-2 text-sm font-medium transition-all ${preference === option
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25'
-                    : 'bg-white text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200'
-                  }`}
-              >
-                {option}
-              </button>
-            ))}
+            {PREFERENCE_OPTIONS.map((option) => {
+              const isActive = preference === option;
+              const isProfileMatch = profileMatchedPrefs.has(option.toLowerCase());
+              return (
+                <button
+                  key={option}
+                  onClick={() => {
+                    const nextPreference = preference === option ? '' : option;
+                    setPreference(nextPreference);
+
+                    if (CATEGORY_PREFERENCES.includes(option) && nextPreference) {
+                      setPendingCategoryJump(option);
+                    }
+                  }}
+                  className={`relative rounded-full px-4 py-2 text-sm font-medium transition-all ${isActive
+                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25'
+                      : isProfileMatch
+                        ? 'bg-indigo-50 text-indigo-600 border border-indigo-300 ring-1 ring-indigo-200'
+                        : 'bg-white text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200'
+                    }`}
+                >
+                  {isProfileMatch && (
+                    <Sparkles className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 text-indigo-500" />
+                  )}
+                  {option}
+                </button>
+              );
+            })}
           </div>
         </motion.section>
 
@@ -268,11 +403,27 @@ export default function PlazaPage() {
           className="space-y-16"
         >
           {data.sections.map((section) => (
-            <motion.section key={section.id} variants={itemVariants}>
+            <motion.section
+              key={section.id}
+              variants={itemVariants}
+              ref={section.type === 'personalized' ? (node) => {
+                personalizedSectionRef.current = node;
+              } : CATEGORY_PREFERENCES.includes(section.title) ? (node) => {
+                categorySectionRefs.current[section.title] = node;
+              } : undefined}
+            >
               {/* 分区标题 */}
               <div className="mb-6 flex items-center justify-between">
                 <div>
-                  <h2 className="text-2xl font-bold text-slate-900">{section.title}</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-2xl font-bold text-slate-900">{section.title}</h2>
+                    {section.type === 'personalized' && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
+                        <Sparkles className="h-3 w-3" />
+                        AI Picks
+                      </span>
+                    )}
+                  </div>
                   {section.subtitle && (
                     <p className="mt-1 text-slate-600">{section.subtitle}</p>
                   )}

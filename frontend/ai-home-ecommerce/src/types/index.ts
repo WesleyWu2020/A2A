@@ -287,3 +287,48 @@ export interface ImplicitPreferencePrompt {
   confirmation_prompt: string;
 }
 
+// ==================== 项目制上下文隔离类型 ====================
+
+export interface ProjectContext {
+  budget_total?: number;
+  budget_spent?: number;
+  style?: string;
+  room_type?: string;
+  room_dimensions?: { length: number; width: number; height: number };
+  constraints?: string[];
+  notes?: string;
+}
+
+export interface FavoriteItem {
+  product_id: string;
+  product_name: string;
+  price?: number;
+  image_url?: string;
+  reason?: string;
+  added_at?: string;
+}
+
+export interface ProjectDesign {
+  project_id: string;
+  user_id: string;
+  name: string;
+  icon: string;
+  status: string;
+  context: ProjectContext;
+  favorites: FavoriteItem[];
+  session_ids: string[];
+  scheme_snapshots: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+// ==================== Agent Skills 类型 ====================
+
+export interface SkillInvocation {
+  skill_name: string;
+  input_summary: string;
+  result_summary: string;
+  passed: boolean;
+  timestamp: string;
+}
+

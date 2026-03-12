@@ -14,6 +14,8 @@ import {
   Package,
   TrendingDown,
   RefreshCw,
+  Heart,
+  Settings,
 } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { AgentTimeline } from '@/components/AgentTimeline';
@@ -24,7 +26,11 @@ import { PriceDisplay } from '@/components/PriceDisplay';
 import { ChatTypingIndicator } from '@/components/LoadingSpinner';
 import { ContextPins } from '@/components/ContextPins';
 import { ImplicitPreferenceCard } from '@/components/ImplicitPreferenceCard';
-import { useChatStore, useAgentTimelineStore, useSchemeStore, useOrderStore, useMemoryStore } from '@/store';
+import { ProjectSwitcher } from '@/components/ProjectSwitcher';
+import { ProjectSettingsPanel } from '@/components/ProjectSettingsPanel';
+import { FavoritesPanel } from '@/components/FavoritesPanel';
+import { SkillResultsBadge } from '@/components/SkillResultsBadge';
+import { useChatStore, useAgentTimelineStore, useSchemeStore, useOrderStore, useMemoryStore, useProjectStore } from '@/store';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { ChatMessage, Scheme, NegotiationRecord } from '@/types';
@@ -324,6 +330,16 @@ export default function ChatPage() {
     dismissImplicitPrompt,
   } = useMemoryStore();
 
+  const {
+    activeProject,
+    lastSkillInvocations,
+    loadProjects,
+  } = useProjectStore();
+
+  // project panels
+  const [showProjectSettings, setShowProjectSettings] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(false);
+
   const hasSchemes = schemes.length > 0;
   const latestStage = stages.length > 0 ? stages[stages.length - 1] : null;
 
@@ -335,10 +351,11 @@ export default function ChatPage() {
     },
   });
 
-  // init session + load memory
+  // init session + load memory + load projects
   useEffect(() => {
     if (!sessionId) initializeSession();
     loadUserMemory();
+    loadProjects();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -563,6 +580,29 @@ export default function ChatPage() {
     <div className="flex h-screen flex-col bg-slate-50">
       <Header />
 
+      {/* ── Project Toolbar ── */}
+      <div className="shrink-0 flex items-center gap-2 border-b border-slate-200 bg-white px-4 py-2">
+        <ProjectSwitcher />
+        {activeProject && (
+          <>
+            <button
+              onClick={() => setShowProjectSettings(true)}
+              className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              Settings
+            </button>
+            <button
+              onClick={() => setShowFavorites(true)}
+              className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+            >
+              <Heart className="h-3.5 w-3.5" />
+              Favorites
+            </button>
+          </>
+        )}
+      </div>
+
       <div className="flex flex-1 overflow-hidden">
 
         {/* ── Left: Chat ── */}
@@ -711,6 +751,13 @@ export default function ChatPage() {
             </div>
           </div>
 
+          {/* Skill Check Results */}
+          {lastSkillInvocations.length > 0 && (
+            <div className="shrink-0 border-b border-slate-200 px-5 py-2">
+              <SkillResultsBadge invocations={lastSkillInvocations} />
+            </div>
+          )}
+
           {hasSchemes && (
             <div
               onMouseDown={() => {
@@ -750,6 +797,8 @@ export default function ChatPage() {
       </div>
 
       <NegotiationDialog isOpen={negOpen} onClose={() => setNegOpen(false)} record={negRecord} />
+      <ProjectSettingsPanel isOpen={showProjectSettings} onClose={() => setShowProjectSettings(false)} />
+      <FavoritesPanel isOpen={showFavorites} onClose={() => setShowFavorites(false)} />
     </div>
   );
 }

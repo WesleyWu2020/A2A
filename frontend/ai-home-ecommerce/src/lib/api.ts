@@ -11,6 +11,10 @@ import {
   ContextPin,
   MemoryTag,
   SpaceProfile,
+  ProjectDesign,
+  ProjectContext,
+  FavoriteItem,
+  SkillInvocation,
 } from '@/types';
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -276,6 +280,80 @@ class ApiClient {
       `/api/memory/session/${sessionId}/pins/${pinKey}`,
       { method: 'DELETE' }
     );
+  }
+
+  // ── Project API ─────────────────────────────────────────────────────────
+
+  async listProjects(userId: string): Promise<ApiResponse<{ projects: ProjectDesign[]; active_project_id: string | null }>> {
+    return this.request<{ projects: ProjectDesign[]; active_project_id: string | null }>(`/api/projects/user/${userId}`);
+  }
+
+  async getProject(projectId: string): Promise<ApiResponse<ProjectDesign>> {
+    return this.request<ProjectDesign>(`/api/projects/${projectId}`);
+  }
+
+  async createProject(userId: string, name: string, icon: string = '🏠', context?: ProjectContext): Promise<ApiResponse<ProjectDesign>> {
+    return this.request<ProjectDesign>('/api/projects/create', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, name, icon, context }),
+    });
+  }
+
+  async updateProject(projectId: string, patch: { name?: string; icon?: string; status?: string; context?: ProjectContext }): Promise<ApiResponse<ProjectDesign>> {
+    return this.request<ProjectDesign>(`/api/projects/${projectId}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  async deleteProject(projectId: string, userId: string): Promise<ApiResponse<{ deleted: boolean }>> {
+    return this.request<{ deleted: boolean }>(`/api/projects/${projectId}?user_id=${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async setActiveProject(userId: string, projectId: string): Promise<ApiResponse<{ active_project_id: string }>> {
+    return this.request<{ active_project_id: string }>(`/api/projects/user/${userId}/active/${projectId}`, {
+      method: 'POST',
+    });
+  }
+
+  async getActiveProject(userId: string): Promise<ApiResponse<ProjectDesign | null>> {
+    return this.request<ProjectDesign | null>(`/api/projects/user/${userId}/active`);
+  }
+
+  async addFavorite(userId: string, projectId: string, item: { product_id: string; product_name: string; price?: number; image_url?: string; reason?: string }): Promise<ApiResponse<{ favorites: FavoriteItem[] }>> {
+    return this.request<{ favorites: FavoriteItem[] }>('/api/projects/favorites/add', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, project_id: projectId, ...item }),
+    });
+  }
+
+  async removeFavorite(userId: string, projectId: string, productId: string): Promise<ApiResponse<{ favorites: FavoriteItem[] }>> {
+    return this.request<{ favorites: FavoriteItem[] }>('/api/projects/favorites/remove', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, project_id: projectId, product_id: productId }),
+    });
+  }
+
+  async listFavorites(projectId: string): Promise<ApiResponse<{ favorites: FavoriteItem[] }>> {
+    return this.request<{ favorites: FavoriteItem[] }>(`/api/projects/${projectId}/favorites`);
+  }
+
+  // ── Skills API ──────────────────────────────────────────────────────────
+
+  async checkBudget(budgetTotal: number, budgetSpent: number, items: { price: number; quantity: number }[]): Promise<ApiResponse<Record<string, unknown>>> {
+    return this.request<Record<string, unknown>>('/api/skills/budget/check', {
+      method: 'POST',
+      body: JSON.stringify({ budget_total: budgetTotal, budget_spent: budgetSpent, proposed_items: items }),
+    });
+  }
+
+  async checkDimensions(roomDimensions: { length: number; width: number; height: number }, existingFurniture: Record<string, number>[], proposedFurniture: Record<string, number>[]): Promise<ApiResponse<Record<string, unknown>>> {
+    return this.request<Record<string, unknown>>('/api/skills/dimension/check', {
+      method: 'POST',
+      body: JSON.stringify({ room_dimensions: roomDimensions, existing_furniture: existingFurniture, proposed_furniture: proposedFurniture }),
+    });
   }
 }
 

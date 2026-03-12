@@ -19,6 +19,8 @@ from app.models.memory import SessionContextPin, SessionMemoryState, MemoryTag, 
 from app.agents.orchestrator import get_orchestrator, create_initial_state
 from app.core.redis import cache
 from app.api.deps import get_standard_response
+from app.services.project_service import ProjectService
+from app.services.skills_service import SkillsService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["对话"])
@@ -218,6 +220,9 @@ SESSION_PINS_TTL = 60 * 60 * 4
 USER_MEMORY_KEY = "user_memory:{user_id}"
 DEMO_USER_ID = "demo_user_001"
 
+_project_service = ProjectService()
+_skills_service = SkillsService()
+
 
 def _should_use_profile_context(message: str) -> bool:
     """Detect explicit requests to generate plans from saved profile."""
@@ -359,6 +364,49 @@ def _extract_context_pins(message: str, extracted: dict) -> list[SessionContextP
     return pins
 
 
+async def _build_project_and_rag_context(user_id: str) -> tuple[str, Optional[str]]:
+    """
+    Load active project context + favorites RAG context.
+    Returns (project_context_block, rag_context_block).
+    """
+    active_project = await _project_service.get_active_project(user_id)
+    if not active_project:
+        return "", None
+
+    project_block = await _project_service.build_project_context_block(active_project.project_id)
+    rag_block = await _project_service.build_favorites_rag_context(active_project.project_id)
+    return project_block, rag_block if rag_block else None
+
+
+async def _run_skills_on_schemes(user_id: str, schemes: list) -> dict:
+    """
+    After scheme generation, run budget & dimension skills checks.
+    Returns {invocations, warnings, block}.
+    """
+    active_project = await _project_service.get_active_project(user_id)
+    if not active_project:
+        return {"invocations": [], "warnings": [], "block": False}
+
+    ctx = active_project.context
+    proposed_items = []
+    for scheme in schemes[:1]:  # check against first/best scheme
+        for item in scheme.get("items", []):
+            proposed_items.append({
+                "product_id": item.get("product_id", ""),
+                "product_name": item.get("product_name", ""),
+                "price": item.get("price", 0),
+                "quantity": 1,
+            })
+
+    return await _skills_service.run_pre_recommendation_checks(
+        budget_total=ctx.budget_total,
+        budget_spent=ctx.budget_spent,
+        proposed_items=proposed_items,
+        room_dimensions=ctx.room_dimensions,
+        existing_furniture=None,
+    )
+
+
 def _detect_implicit_preference(message: str) -> Optional[ImplicitPreferenceDetected]:
     """
     检测消息中可能含有的隐性偏好，返回待确认提示。
@@ -426,6 +474,27 @@ async def send_message(request: ChatRequest):
         agent_message, used_profile_context = await _build_profile_prompt_context(
             request.message, session_id, current_state
         )
+
+        # ── Inject active project context + favorites RAG ─────────────────
+        user_id = current_state.get("user_id") or DEMO_USER_ID
+        project_context_block = ""
+        rag_block = ""
+        active_project_name = None
+        try:
+            project_context_block, rag_block_raw = await _build_project_and_rag_context(user_id)
+            rag_block = rag_block_raw or ""
+            if project_context_block:
+                active_proj = await _project_service.get_active_project(user_id)
+                active_project_name = active_proj.name if active_proj else None
+                agent_message = agent_message + "\n\n" + project_context_block
+                # Link session to project
+                if active_proj:
+                    await _project_service.link_session(active_proj.project_id, session_id)
+            if rag_block:
+                agent_message = agent_message + "\n\n" + rag_block
+        except Exception as proj_err:
+            logger.warning(f"Project context injection failed (non-fatal): {proj_err}")
+
         result = await orchestrator.run(
             session_id=session_id,
             current_state=current_state,
@@ -474,7 +543,18 @@ async def send_message(request: ChatRequest):
             "has_schemes": True,
             "intent": result.get("extracted_requirements", {}).get("intent"),
             "used_profile_context": used_profile_context,
+            "active_project_name": active_project_name,
         }
+
+        # ── Skills checks on generated schemes ───────────────────────────────
+        try:
+            skills_result = await _run_skills_on_schemes(user_id, raw_schemes or [])
+            if skills_result["invocations"]:
+                response_data["skill_invocations"] = skills_result["invocations"]
+            if skills_result["warnings"]:
+                response_data["skill_warnings"] = skills_result["warnings"]
+        except Exception as skill_err:
+            logger.warning(f"Skills check failed (non-fatal): {skill_err}")
 
         # ── Context Pins extraction ───────────────────────────────────────────
         try:
@@ -558,6 +638,24 @@ async def send_message_stream(request: ChatRequest):
             agent_message, used_profile_context = await _build_profile_prompt_context(
                 request.message, session_id, current_state
             )
+
+            # ── Inject active project context + favorites RAG ─────────────
+            user_id = current_state.get("user_id") or DEMO_USER_ID
+            active_project_name = None
+            try:
+                project_context_block, rag_block_raw = await _build_project_and_rag_context(user_id)
+                rag_block = rag_block_raw or ""
+                if project_context_block:
+                    active_proj = await _project_service.get_active_project(user_id)
+                    active_project_name = active_proj.name if active_proj else None
+                    agent_message = agent_message + "\n\n" + project_context_block
+                    if active_proj:
+                        await _project_service.link_session(active_proj.project_id, session_id)
+                if rag_block:
+                    agent_message = agent_message + "\n\n" + rag_block
+            except Exception as proj_err:
+                logger.warning(f"Project context injection in stream failed (non-fatal): {proj_err}")
+
             result = await orchestrator.run(
                 session_id=session_id,
                 current_state=current_state,
@@ -630,6 +728,18 @@ async def send_message_stream(request: ChatRequest):
                 pause = 0.02 + min(0.08, len(chunk) * 0.002)
                 await asyncio.sleep(pause)
             
+            # ── Skills checks ─────────────────────────────────────────────
+            skill_invocations_payload = None
+            skill_warnings_payload = None
+            try:
+                skills_result = await _run_skills_on_schemes(user_id, raw_schemes or [])
+                if skills_result["invocations"]:
+                    skill_invocations_payload = skills_result["invocations"]
+                if skills_result["warnings"]:
+                    skill_warnings_payload = skills_result["warnings"]
+            except Exception as skill_err:
+                logger.warning(f"Skills check in stream failed (non-fatal): {skill_err}")
+
             yield {
                 "event": "complete",
                 "data": json.dumps({
@@ -645,8 +755,11 @@ async def send_message_stream(request: ChatRequest):
                     "has_schemes": True,
                     "intent": result.get("extracted_requirements", {}).get("intent"),
                     "used_profile_context": used_profile_context,
+                    "active_project_name": active_project_name,
                     "context_pins": context_pins_payload,
                     "implicit_preference_prompt": implicit_prompt_payload,
+                    "skill_invocations": skill_invocations_payload,
+                    "skill_warnings": skill_warnings_payload,
                     "has_recommendation": bool(result.get("schemes")),
                     "has_negotiation": bool(task_results.get("negotiation"))
                 })

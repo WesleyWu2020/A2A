@@ -173,7 +173,8 @@ async def get_plaza_home(
     request: Request,
     session_id: Optional[str] = Query(None, description="会话ID用于个性化"),
     preference_category: Optional[str] = Query(None, description="偏好类目"),
-    preference_style: Optional[str] = Query(None, description="偏好风格")
+    preference_style: Optional[str] = Query(None, description="偏好风格"),
+    profile_tags: Optional[str] = Query(None, description="用户Profile标签，逗号分隔")
 ):
     """
     获取购物广场首页数据
@@ -201,9 +202,17 @@ async def get_plaza_home(
             }
         }
         
+        # 解析 profile_tags
+        tag_list = [t.strip() for t in profile_tags.split(",") if t.strip()] if profile_tags else []
+
         # 并发获取所有首页数据
         sections, reviews = await asyncio.gather(
-            _build_sections(service, preference_category=preference_category, preference_style=preference_style),
+            _build_sections(
+                service,
+                preference_category=preference_category,
+                preference_style=preference_style,
+                profile_tags=tag_list,
+            ),
             _generate_reviews(service),
         )
         achievements = _generate_achievements()
@@ -385,12 +394,57 @@ async def get_product_for_plaza(
 
 # ============== 辅助函数 ==============
 
+# Profile tag labels for explainable subtitles
+_TAG_EXPLAIN: dict[str, str] = {
+    "has_cats": "pet-friendly",
+    "has_dogs": "pet-friendly",
+    "prefers_wood": "natural wood",
+    "formaldehyde_sensitive": "low-chemical",
+    "child_safe": "child-safe",
+    "minimalist": "minimalist",
+    "mid_century": "mid-century",
+    "scandinavian": "Scandinavian",
+    "cold_sensitive": "warm-material",
+}
+
+
+def _build_explainable_subtitle(
+    preference_category: Optional[str],
+    preference_style: Optional[str],
+    profile_tags: List[str],
+) -> str:
+    """Generate an explainable AI subtitle for the personalized section."""
+    parts: list[str] = []
+
+    # Style / category cue
+    if preference_style and preference_category:
+        parts.append(f"your {preference_style} {preference_category.lower()} taste")
+    elif preference_style:
+        parts.append(f"your {preference_style} taste")
+    elif preference_category:
+        parts.append(f"your interest in {preference_category.lower()}")
+
+    # Profile tag cues (at most 2)
+    tag_cues = [_TAG_EXPLAIN[t] for t in profile_tags if t in _TAG_EXPLAIN]
+    for cue in tag_cues[:2]:
+        if cue not in " ".join(parts):  # avoid duplicate mention
+            parts.append(f"{cue} home")
+
+    if not parts:
+        return "Curated based on your preferences"
+
+    return "Curated for " + " & ".join(parts[:3])
+
+
 async def _build_sections(
     service: ProductService,
     preference_category: Optional[str] = None,
-    preference_style: Optional[str] = None
+    preference_style: Optional[str] = None,
+    profile_tags: Optional[List[str]] = None,
 ) -> List[dict]:
     """构建广场分区 — 所有 DB 查询并发执行"""
+
+    profile_tags = profile_tags or []
 
     categories = [
         ("Furniture", "Top-rated furniture for every room"),
@@ -475,10 +529,15 @@ async def _build_sections(
                 personalized_title = f"Recommended {preference_category}"
             else:
                 personalized_title = f"Recommended {preference_style.title()} Style Picks"  # type: ignore[union-attr]
+
+            personalized_subtitle = _build_explainable_subtitle(
+                preference_category, preference_style, profile_tags
+            )
+
             sections.insert(0, {
                 "id": "personalized",
                 "title": personalized_title,
-                "subtitle": "Curated based on your preferences",
+                "subtitle": personalized_subtitle,
                 "type": "personalized",
                 "products": _format_products(r_pers["products"], ["Agent Pick"]),
                 "sort_order": 1

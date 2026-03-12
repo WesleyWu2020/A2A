@@ -2,12 +2,13 @@
 
 import Image from 'next/image';
 import { motion } from 'framer-motion';
-import { Check, Sparkles, ArrowRight, Package, TrendingDown, X, Star, Tag } from 'lucide-react';
+import { Check, Sparkles, ArrowRight, Package, TrendingDown, X, Star, Tag, Heart } from 'lucide-react';
 import { Scheme } from '@/types';
 import { PriceDisplay } from './PriceDisplay';
 import { ProductCard } from './ProductCard';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
+import { useProjectStore } from '@/store';
 
 interface SchemeCardProps {
   scheme: Scheme;
@@ -29,12 +30,17 @@ export function SchemeCard({
   const [showProducts, setShowProducts] = useState(false);
   const [selectedProductIndex, setSelectedProductIndex] = useState<number | null>(null);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const { activeProject, addFavorite, removeFavorite } = useProjectStore();
   const totalSavings = scheme.originalTotal - scheme.finalTotal;
   const savingsPercentage = Math.round((totalSavings / scheme.originalTotal) * 100);
 
   const selectedItem = selectedProductIndex !== null ? scheme.products[selectedProductIndex] : null;
   const selectedProduct = selectedItem?.product;
   const selectedImages = selectedProduct?.images || [];
+  const isSelectedFavorited = !!(
+    selectedProduct &&
+    activeProject?.favorites?.some((fav) => fav.product_id === selectedProduct.id)
+  );
   const itemSavings = selectedItem ? Math.max(selectedItem.originalPrice - selectedItem.finalPrice, 0) : 0;
   const itemSavingsPercent = selectedItem && selectedItem.originalPrice > 0
     ? Math.round((itemSavings / selectedItem.originalPrice) * 100)
@@ -239,13 +245,42 @@ export function SchemeCard({
           >
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white/95 px-5 py-4 backdrop-blur">
               <h3 className="text-lg font-semibold text-slate-900">Product Details</h3>
-              <button
-                onClick={() => setSelectedProductIndex(null)}
-                className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
-                aria-label="Close product details"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                {activeProject && (
+                  <button
+                    onClick={() => {
+                      if (isSelectedFavorited) {
+                        removeFavorite(selectedProduct.id);
+                        return;
+                      }
+                      addFavorite(
+                        selectedProduct.id,
+                        selectedProduct.name,
+                        selectedItem.finalPrice,
+                        selectedImages[0] || '',
+                        `From scheme "${scheme.name}"`,
+                      );
+                    }}
+                    className={cn(
+                      'flex items-center gap-1 rounded-lg px-3 py-2 text-sm transition-colors',
+                      isSelectedFavorited
+                        ? 'bg-rose-50 text-rose-600'
+                        : 'text-slate-500 hover:bg-rose-50 hover:text-rose-500'
+                    )}
+                    title={isSelectedFavorited ? 'Remove from favorites' : 'Add to favorites'}
+                  >
+                    <Heart className={cn('h-4 w-4', isSelectedFavorited && 'fill-rose-500 text-rose-500')} />
+                    <span className="text-xs">{isSelectedFavorited ? 'Favorited' : 'Favorite'}</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setSelectedProductIndex(null)}
+                  className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Close product details"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
             <div className="grid gap-6 p-5 md:grid-cols-2">
