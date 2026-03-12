@@ -28,53 +28,18 @@ import { ContextPins } from '@/components/ContextPins';
 import { ImplicitPreferenceCard } from '@/components/ImplicitPreferenceCard';
 import { ProjectSwitcher } from '@/components/ProjectSwitcher';
 import { ProjectSettingsPanel } from '@/components/ProjectSettingsPanel';
-import { FavoritesPanel } from '@/components/FavoritesPanel';
+import { FavoritesPanel } from '../../components/FavoritesPanel';
 import { SkillResultsBadge } from '@/components/SkillResultsBadge';
 import { useChatStore, useAgentTimelineStore, useSchemeStore, useOrderStore, useMemoryStore, useProjectStore } from '@/store';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
-import { ChatMessage, Scheme, NegotiationRecord } from '@/types';
+import { ChatMessage, Scheme, SchemeRound, NegotiationRecord } from '@/types';
 import { API_BASE_URL } from '@/lib/api';
+import { enrichSchemesWithResolvedImages } from '@/lib/scheme-image-resolver';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
-interface FeaturedProduct {
-  id: string;
-  name: string;
-  price: number;
-  originalPrice?: number;
-  image: string;
-  images: string[];
-  category: string;
-  rating: number;
-  reviewCount: number;
-  inStock: boolean;
-  tags: string[];
-}
-
 // ─── helpers ──────────────────────────────────────────────────────────────────
-
-function enrichSchemesWithImages(schemes: Scheme[], fp: FeaturedProduct[]): Scheme[] {
-  if (fp.length === 0) return schemes;
-  let imgIdx = 0;
-  return schemes.map((scheme, si) => ({
-    ...scheme,
-    coverImage: scheme.coverImage || fp[si % fp.length]?.image,
-    products: scheme.products.map((item) => {
-      const hasImage = item.product.images?.length > 0 && item.product.images[0];
-      if (hasImage) return item;
-      const real = fp[imgIdx % fp.length];
-      imgIdx++;
-      return {
-        ...item,
-        product: {
-          ...item.product,
-          images: real ? [real.image, ...real.images.slice(1, 3)] : [],
-        },
-      };
-    }),
-  }));
-}
 
 // ─── quick prompts ────────────────────────────────────────────────────────────
 
@@ -118,7 +83,95 @@ function TypewriterText({ text, enabled }: { text: string; enabled: boolean }) {
 
 // ─── sub-components ───────────────────────────────────────────────────────────
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+// 方案轮次卡片（嵌入在聊天流中）
+function SchemeRoundCard({
+  round,
+  isActive,
+  onClick,
+}: {
+  round: SchemeRound;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  const totalSavings = round.schemes.reduce((s, sc) => s + sc.totalDiscount, 0);
+  const generatedTime = new Date(round.timestamp).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return (
+    <motion.button
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick}
+      className={cn(
+        'mt-2 w-full rounded-xl border px-4 py-3 text-left transition-all',
+        isActive
+          ? 'border-indigo-400 bg-indigo-50 ring-2 ring-indigo-500/20 shadow-md'
+          : 'border-slate-200 bg-white hover:border-indigo-200 hover:bg-indigo-50/40 shadow-sm',
+      )}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className={cn(
+            'flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold',
+            isActive
+              ? 'bg-indigo-600 text-white'
+              : 'bg-slate-100 text-slate-600',
+          )}>
+            v{round.roundNumber}
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-900">
+              Scheme v{round.roundNumber}
+            </p>
+            <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">
+              {round.summary}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Generated at {generatedTime}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {totalSavings > 0 && (
+            <span className="flex items-center gap-0.5 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+              <TrendingDown className="h-3 w-3" />
+              -${totalSavings.toLocaleString()}
+            </span>
+          )}
+          <ArrowRight className={cn(
+            'h-4 w-4 transition-colors',
+            isActive ? 'text-indigo-600' : 'text-slate-400',
+          )} />
+        </div>
+      </div>
+      {isActive && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="mt-1.5 flex items-center gap-1 text-xs text-indigo-600 font-medium"
+        >
+          <Check className="h-3 w-3" />
+          Currently viewing
+        </motion.div>
+      )}
+    </motion.button>
+  );
+}
+
+function MessageBubble({
+  message,
+  schemeRound,
+  activeRoundId,
+  onSwitchRound,
+}: {
+  message: ChatMessage;
+  schemeRound?: SchemeRound;
+  activeRoundId: string | null;
+  onSwitchRound: (roundId: string) => void;
+}) {
   const isUser = message.role === 'user';
   const enableTypewriter = message.role === 'assistant' && message.type !== 'loading';
   return (
@@ -152,6 +205,15 @@ function MessageBubble({ message }: { message: ChatMessage }) {
               <ProductCard key={product.id} product={product} variant="compact" />
             ))}
           </div>
+        )}
+
+        {/* 方案轮次卡片 — 当该消息关联了某一轮方案时展示 */}
+        {schemeRound && (
+          <SchemeRoundCard
+            round={schemeRound}
+            isActive={activeRoundId === schemeRound.id}
+            onClick={() => onSwitchRound(schemeRound.id)}
+          />
         )}
 
         <span className="mt-1 text-xs text-slate-400">
@@ -204,7 +266,10 @@ interface PackagesPanelProps {
   onConfirmOrder: (scheme: Scheme) => void;
   selectedSchemeId: string | null;
   onSelectScheme: (scheme: Scheme) => void;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<void>;
+  activeRound?: SchemeRound | null;
+  totalRounds: number;
+  isLoading: boolean;
 }
 
 function PackagesPanel({
@@ -214,6 +279,9 @@ function PackagesPanel({
   selectedSchemeId,
   onSelectScheme,
   onRefresh,
+  activeRound,
+  totalRounds,
+  isLoading,
 }: PackagesPanelProps) {
   const totalSavings = schemes.reduce((s, sc) => s + sc.totalDiscount, 0);
   const selectedScheme = schemes.find((s) => s.id === selectedSchemeId) ?? null;
@@ -229,6 +297,11 @@ function PackagesPanel({
             <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
               {schemes.length}
             </span>
+            {activeRound && totalRounds > 1 && (
+              <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700">
+                v{activeRound.roundNumber} / {totalRounds}
+              </span>
+            )}
           </h3>
           {totalSavings > 0 && (
             <p className="mt-0.5 flex items-center gap-1 text-xs text-emerald-600">
@@ -239,10 +312,16 @@ function PackagesPanel({
         </div>
         <button
           onClick={onRefresh}
-          className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+          disabled={isLoading}
+          className={cn(
+            'flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs transition-colors',
+            isLoading
+              ? 'cursor-not-allowed text-slate-300'
+              : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+          )}
         >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Regenerate
+          <RefreshCw className={cn('h-3.5 w-3.5', isLoading ? 'animate-spin' : '')} />
+          {isLoading ? 'Regenerating...' : 'Regenerate'}
         </button>
       </div>
 
@@ -318,7 +397,15 @@ export default function ChatPage() {
 
   const { messages, isLoading, sendMessage, initializeSession, sessionId } = useChatStore();
   const { stages, isActive, setIsActive, addStage, updateStage, clearStages } = useAgentTimelineStore();
-  const { schemes, setSchemes, selectScheme } = useSchemeStore();
+  const {
+    schemes,
+    setSchemes,
+    selectScheme,
+    schemeHistory,
+    activeRoundId,
+    setActiveRound,
+    updateRoundSchemes,
+  } = useSchemeStore();
   const { setCurrentOrder } = useOrderStore();
   const {
     contextPins,
@@ -364,21 +451,24 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  // enrich images when schemes arrive
+  // enrich images when schemes arrive (also update scheme history round)
   useEffect(() => {
     if (schemes.length === 0) return;
     const needsImages = schemes.some(
       (s) => s.products.some((p) => !p.product.images?.length || !p.product.images[0])
     );
     if (!needsImages) return;
-    fetch(`${API_BASE_URL}/api/products/featured?limit=12`)
-      .then((r) => r.json())
-      .then((res) => {
-        const fp: FeaturedProduct[] = res.code === 200 && res.data?.products ? res.data.products : [];
-        if (fp.length > 0) setSchemes(enrichSchemesWithImages(schemes, fp));
+    void enrichSchemesWithResolvedImages(schemes, API_BASE_URL)
+      .then((enriched) => {
+        if (enriched === schemes) return;
+        setSchemes(enriched);
+        // 同步更新 schemeHistory 中对应轮次的 schemes（不可变）
+        if (activeRoundId) {
+          updateRoundSchemes(activeRoundId, enriched);
+        }
       })
       .catch(() => {});
-  }, [schemes, setSchemes]);
+  }, [schemes, activeRoundId, setSchemes, updateRoundSchemes]);
 
   const clearStreamingPreview = useCallback(() => {
     if (streamTimerRef.current) {
@@ -474,6 +564,11 @@ export default function ChatPage() {
     };
   }, []);
 
+  // 切换方案轮次时，清空右侧当前选中的 package，避免跨轮次残留选中态
+  useEffect(() => {
+    setSelectedSchemeId(null);
+  }, [activeRoundId]);
+
   // send message
   const handleSend = async () => {
     if (!inputValue.trim() || isLoading) return;
@@ -568,10 +663,58 @@ export default function ChatPage() {
     router.push('/order');
   };
 
-  const handleRefresh = () => {
-    setSchemes([]);
+  const handleRefresh = async () => {
+    if (isLoading) return;
+    const latestUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content?.trim();
+    if (!latestUserMessage) return;
+
+    const regeneratePrompt = [
+      latestUserMessage,
+      '',
+      'Please regenerate a NEW version of package proposals with different product combinations and negotiation strategies from previous versions. Keep my original constraints and budget intent.',
+    ].join('\n');
+
+    setIsActive(true);
     setSelectedSchemeId(null);
     clearStages();
+
+    addStage({
+      stage: 'retrieving',
+      label: 'retrieving',
+      description: 'Regenerating a new version of your packages...',
+      progress: 10,
+      timestamp: new Date().toISOString(),
+    });
+    startStreamingPreview('Regenerate latest package version');
+
+    try {
+      await sendMessage(regeneratePrompt, {
+        onToken: (text) => {
+          setStreamingPreview(text);
+        },
+      });
+
+      const { schemes: storeSchemes } = useSchemeStore.getState();
+      const hasCompletedStage = useAgentTimelineStore
+        .getState()
+        .stages
+        .some((s) => s.stage === 'completed');
+
+      if (!hasCompletedStage) {
+        addStage({
+          stage: 'completed',
+          label: 'Completed',
+          description: storeSchemes.length > 0
+            ? `Regenerated ${storeSchemes.length} new packages — latest version is now active.`
+            : 'Regeneration completed. You can refine your request for more options.',
+          progress: 100,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } finally {
+      clearStreamingPreview();
+      setIsActive(false);
+    }
   };
 
   // ─── render ───────────────────────────────────────────────────────────────
@@ -616,7 +759,15 @@ export default function ChatPage() {
                   visitCount={userMemory?.visit_count}
                 />
               ) : (
-                messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)
+                messages.map((msg) => (
+                  <MessageBubble
+                    key={msg.id}
+                    message={msg}
+                    schemeRound={msg.schemeRoundId ? schemeHistory.find(r => r.id === msg.schemeRoundId) : undefined}
+                    activeRoundId={activeRoundId}
+                    onSwitchRound={setActiveRound}
+                  />
+                ))
               )}
 
               {isLoading && (
@@ -629,6 +780,8 @@ export default function ChatPage() {
                       timestamp: new Date().toISOString(),
                       type: 'loading',
                     }}
+                    activeRoundId={activeRoundId}
+                    onSwitchRound={setActiveRound}
                   />
                   <div className="pl-12">
                     <ChatTypingIndicator />
@@ -789,6 +942,9 @@ export default function ChatPage() {
                   onViewNegotiation={handleViewNegotiation}
                   onConfirmOrder={handleConfirmOrder}
                   onRefresh={handleRefresh}
+                  activeRound={schemeHistory.find(r => r.id === activeRoundId) ?? null}
+                  totalRounds={schemeHistory.length}
+                  isLoading={isLoading}
                 />
               </motion.div>
             )}

@@ -17,6 +17,7 @@ import { PageLoading } from '@/components/LoadingSpinner';
 import { useSchemeStore, useOrderStore } from '@/store';
 import { Scheme, NegotiationRecord } from '@/types';
 import { API_BASE_URL } from '@/lib/api';
+import { enrichSchemesWithResolvedImages } from '@/lib/scheme-image-resolver';
 
 // Real product shape returned by /api/products/featured
 interface FeaturedProduct {
@@ -31,29 +32,6 @@ interface FeaturedProduct {
   reviewCount: number;
   inStock: boolean;
   tags: string[];
-}
-
-// Enrich existing schemes (from chat AI) with real product images
-function enrichSchemesWithImages(schemes: Scheme[], fp: FeaturedProduct[]): Scheme[] {
-  if (fp.length === 0) return schemes;
-  let imgIdx = 0;
-  return schemes.map((scheme, si) => ({
-    ...scheme,
-    coverImage: scheme.coverImage || fp[si % fp.length]?.image,
-    products: scheme.products.map((item) => {
-      const hasImage = item.product.images && item.product.images.length > 0 && item.product.images[0];
-      if (hasImage) return item;
-      const real = fp[imgIdx % fp.length];
-      imgIdx++;
-      return {
-        ...item,
-        product: {
-          ...item.product,
-          images: real ? [real.image, ...real.images.slice(1, 3)] : [],
-        },
-      };
-    }),
-  }));
 }
 
 // Build a mock scheme injecting real product images
@@ -201,12 +179,13 @@ export default function SchemesPage() {
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/products/featured?limit=12`)
       .then(r => r.json())
-      .then(res => {
+      .then(async res => {
         const fp: FeaturedProduct[] = (res.code === 200 && res.data?.products)
           ? res.data.products
           : [];
         if (schemes.length > 0) {
-          setSchemes(enrichSchemesWithImages(schemes, fp));
+          const enriched = await enrichSchemesWithResolvedImages(schemes, API_BASE_URL);
+          setSchemes(enriched);
         } else {
           setSchemes(buildMockSchemes(fp));
         }

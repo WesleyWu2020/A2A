@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { 
   ChatMessage, 
   Scheme, 
+  SchemeRound,
   Order, 
   AgentStageInfo,
   OrderFormData,
@@ -172,11 +173,46 @@ export const useChatStore = create<ChatState>((set, get) => ({
           });
         }
 
-        // 如果有方案数据，存入 scheme store
+        // 如果有方案数据，存入 scheme store 并创建方案轮次
         const schemes = data.schemes as unknown[];
         if (schemes && schemes.length > 0) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          useSchemeStore.getState().setSchemes(schemes as any[]);
+          const schemeArr = schemes as Scheme[];
+          const schemeStore = useSchemeStore.getState();
+          const roundNumber = schemeStore.schemeHistory.length + 1;
+
+          // 从方案中提取摘要信息
+          const styleSummary = schemeArr[0]?.style || 'Custom';
+          const totalRange = schemeArr.length > 0
+            ? `$${Math.min(...schemeArr.map(s => s.finalTotal)).toLocaleString()} - $${Math.max(...schemeArr.map(s => s.finalTotal)).toLocaleString()}`
+            : '';
+          const summary = `${styleSummary} | ${schemeArr.length} packages | ${totalRange}`;
+
+          // 找到刚添加的 assistant message 的 ID
+          const currentMessages = get().messages;
+          const lastAssistantMsg = [...currentMessages].reverse().find(m => m.role === 'assistant');
+          const messageId = lastAssistantMsg?.id || Date.now().toString();
+
+          const round: SchemeRound = {
+            id: `round_${Date.now()}_${roundNumber}`,
+            roundNumber,
+            schemes: schemeArr,
+            timestamp: new Date().toISOString(),
+            summary,
+            messageId,
+          };
+
+          // 将 schemeRoundId 关联到对应的 assistant 消息
+          if (lastAssistantMsg) {
+            set((state) => ({
+              messages: state.messages.map((msg) =>
+                msg.id === lastAssistantMsg.id
+                  ? { ...msg, schemeRoundId: round.id }
+                  : msg
+              ),
+            }));
+          }
+
+          schemeStore.addSchemeRound(round);
         }
 
         // 更新 Context Pins（需求标签组）
@@ -227,18 +263,29 @@ interface SchemeState {
   schemes: Scheme[];
   selectedScheme: Scheme | null;
   isLoading: boolean;
-  
+
+  // 方案轮次历史
+  schemeHistory: SchemeRound[];
+  activeRoundId: string | null;
+
   // Actions
   setSchemes: (schemes: Scheme[]) => void;
   selectScheme: (scheme: Scheme | null) => void;
   setIsLoading: (isLoading: boolean) => void;
   fetchSchemes: (sessionId: string) => Promise<void>;
+  addSchemeRound: (round: SchemeRound) => void;
+  setActiveRound: (roundId: string) => void;
+  updateRoundSchemes: (roundId: string, schemes: Scheme[]) => void;
+  clearSchemeHistory: () => void;
+  getActiveSchemes: () => Scheme[];
 }
 
-export const useSchemeStore = create<SchemeState>((set) => ({
+export const useSchemeStore = create<SchemeState>((set, get) => ({
   schemes: [],
   selectedScheme: null,
   isLoading: false,
+  schemeHistory: [],
+  activeRoundId: null,
 
   setSchemes: (schemes) => set({ schemes }),
 
@@ -258,6 +305,52 @@ export const useSchemeStore = create<SchemeState>((set) => ({
     } finally {
       set({ isLoading: false });
     }
+  },
+
+  addSchemeRound: (round) => {
+    set((state) => ({
+      schemeHistory: [...state.schemeHistory, round],
+      activeRoundId: round.id,
+      schemes: round.schemes,
+      selectedScheme: null,
+    }));
+  },
+
+  setActiveRound: (roundId) => {
+    const { schemeHistory } = get();
+    const round = schemeHistory.find((r) => r.id === roundId);
+    if (round) {
+      set({
+        activeRoundId: roundId,
+        schemes: round.schemes,
+        selectedScheme: null,
+      });
+    }
+  },
+
+  updateRoundSchemes: (roundId, schemes) => {
+    set((state) => ({
+      schemeHistory: state.schemeHistory.map((round) =>
+        round.id === roundId ? { ...round, schemes } : round
+      ),
+      schemes: state.activeRoundId === roundId ? schemes : state.schemes,
+    }));
+  },
+
+  clearSchemeHistory: () => {
+    set({
+      schemes: [],
+      selectedScheme: null,
+      schemeHistory: [],
+      activeRoundId: null,
+    });
+  },
+
+  getActiveSchemes: () => {
+    const { activeRoundId, schemeHistory, schemes } = get();
+    if (!activeRoundId) return schemes;
+    const round = schemeHistory.find((r) => r.id === activeRoundId);
+    return round ? round.schemes : schemes;
   },
 }));
 

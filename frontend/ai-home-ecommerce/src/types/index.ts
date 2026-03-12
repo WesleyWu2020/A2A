@@ -123,6 +123,17 @@ export interface ChatMessage {
   type?: 'text' | 'product' | 'scheme' | 'loading';
   products?: Product[];
   schemes?: Scheme[];
+  schemeRoundId?: string; // 关联到此消息生成的方案轮次
+}
+
+// 方案轮次（历史版本管理）
+export interface SchemeRound {
+  id: string;
+  roundNumber: number;
+  schemes: Scheme[];
+  timestamp: string;
+  summary: string;
+  messageId: string; // 关联的 assistant 消息 ID
 }
 
 // Agent 工作阶段
