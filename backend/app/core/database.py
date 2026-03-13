@@ -211,6 +211,52 @@ CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id);
 CREATE INDEX IF NOT EXISTS idx_orders_recommendation_id ON orders(recommendation_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 
+-- 议价会话表（Night Market）
+CREATE TABLE IF NOT EXISTS negotiation_sessions (
+    id SERIAL PRIMARY KEY,
+    negotiation_id VARCHAR(64) UNIQUE NOT NULL,
+    session_id VARCHAR(64) NOT NULL,
+    scheme_id VARCHAR(128) NOT NULL,
+    scheme_name VARCHAR(255) NOT NULL,
+    scheme_snapshot JSONB DEFAULT '{}',
+    original_price DECIMAL(12, 2) NOT NULL,
+    floor_price DECIMAL(12, 2) NOT NULL,
+    current_round INTEGER DEFAULT 0,
+    max_rounds INTEGER DEFAULT 5,
+    mood_score INTEGER DEFAULT 70,
+    latest_seller_price DECIMAL(12, 2),
+    status VARCHAR(32) DEFAULT 'active', -- active, success, failed, expired
+    lock_until TIMESTAMP WITH TIME ZONE,
+    transcript JSONB DEFAULT '[]',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_negotiation_sessions_negotiation_id ON negotiation_sessions(negotiation_id);
+CREATE INDEX IF NOT EXISTS idx_negotiation_sessions_session_id ON negotiation_sessions(session_id);
+CREATE INDEX IF NOT EXISTS idx_negotiation_sessions_status ON negotiation_sessions(status);
+
+-- 限时报价表（Night Market）
+CREATE TABLE IF NOT EXISTS limited_offers (
+    id SERIAL PRIMARY KEY,
+    offer_id VARCHAR(64) UNIQUE NOT NULL,
+    negotiation_id VARCHAR(64) NOT NULL,
+    session_id VARCHAR(64) NOT NULL,
+    scheme_id VARCHAR(128) NOT NULL,
+    final_price DECIMAL(12, 2) NOT NULL,
+    discount_percent DECIMAL(5, 4) DEFAULT 0,
+    scheme_snapshot JSONB DEFAULT '{}',
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    is_used BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (negotiation_id) REFERENCES negotiation_sessions(negotiation_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_limited_offers_offer_id ON limited_offers(offer_id);
+CREATE INDEX IF NOT EXISTS idx_limited_offers_negotiation_id ON limited_offers(negotiation_id);
+CREATE INDEX IF NOT EXISTS idx_limited_offers_expires_at ON limited_offers(expires_at);
+
 -- Agent 活动日志表
 CREATE TABLE IF NOT EXISTS agent_activities (
     id SERIAL PRIMARY KEY,
@@ -288,6 +334,18 @@ CREATE TRIGGER update_recommendations_updated_at
 DROP TRIGGER IF EXISTS update_orders_updated_at ON orders;
 CREATE TRIGGER update_orders_updated_at
     BEFORE UPDATE ON orders
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_negotiation_sessions_updated_at ON negotiation_sessions;
+CREATE TRIGGER update_negotiation_sessions_updated_at
+    BEFORE UPDATE ON negotiation_sessions
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_limited_offers_updated_at ON limited_offers;
+CREATE TRIGGER update_limited_offers_updated_at
+    BEFORE UPDATE ON limited_offers
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 

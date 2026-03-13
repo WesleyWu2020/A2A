@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.services.product_service import ProductService
+from app.core.database import execute_query
 from app.api.deps import get_standard_response
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,22 @@ class PlazaHomeResponse(BaseModel):
     achievements: List[AgentAchievement]
     reviews: List[StructuredReview]
     wakeups: List[WakeUpCard]
+
+
+class NightMarketSchemeCard(BaseModel):
+    """议价集市方案卡"""
+    scheme_id: str
+    scheme_name: str
+    theme: Optional[str] = None
+    style_tags: List[str] = Field(default=[])
+    items_count: int = 0
+    cover_image: Optional[str] = None
+    original_price: float
+    expected_discount_min: float
+    expected_discount_max: float
+    final_price_hint: float
+    urgency_text: str
+    scheme_snapshot: dict = Field(default_factory=dict)
 
 
 # ============== 模板数据 ==============
@@ -355,6 +372,29 @@ async def get_wakeup_cards(
         })
     except Exception as e:
         logger.error(f"Get wakeups failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/night-market", response_model=dict)
+async def get_night_market_schemes(
+    session_id: Optional[str] = Query(None, description="会话ID"),
+    limit: int = Query(default=9, ge=3, le=24)
+):
+    """
+    获取 Night Market 可议价方案
+
+    优先展示系统已生成的推荐方案；不足时回退为商品拼装方案。
+    """
+    try:
+        service = ProductService()
+        schemes = await _build_night_market_schemes(service, limit=limit)
+        return get_standard_response(data={
+            "session_id": session_id,
+            "schemes": schemes,
+            "total": len(schemes)
+        })
+    except Exception as e:
+        logger.error(f"Get night market schemes failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -664,3 +704,118 @@ def _generate_wakeups(session_id: Optional[str] = None) -> List[dict]:
         })
     
     return wakeups
+
+
+async def _build_night_market_schemes(
+    service: ProductService,
+    limit: int = 9,
+) -> List[dict]:
+    """Build scheme cards for Night Market from recommendations with product fallback."""
+    cards: List[dict] = []
+
+    rows = await execute_query(
+        """
+        SELECT recommendation_id, schemes
+        FROM recommendations
+        WHERE status = 'active'
+        ORDER BY created_at DESC
+        LIMIT 20
+        """
+    )
+
+    for row in rows:
+        rec_id = row["recommendation_id"]
+        schemes = row["schemes"] or []
+        for scheme in schemes:
+            items = scheme.get("items", []) or []
+            total_price = float(scheme.get("total_price") or 0)
+            if not items or total_price <= 0:
+                continue
+
+            expected_discount_min = 8.0
+            expected_discount_max = 15.0
+            hint_discount = (expected_discount_min + expected_discount_max) / 2
+            cover_image = None
+            for item in items:
+                if item.get("product_image"):
+                    cover_image = item["product_image"]
+                    break
+
+            scheme_index = scheme.get("scheme_index", len(cards))
+            scheme_id = f"{rec_id}:{scheme_index}"
+
+            cards.append({
+                "scheme_id": scheme_id,
+                "scheme_name": scheme.get("scheme_name") or f"AI Bundle {scheme_index + 1}",
+                "theme": scheme.get("theme") or "AI Curated",
+                "style_tags": scheme.get("style_tags") or [],
+                "items_count": len(items),
+                "cover_image": cover_image,
+                "original_price": round(total_price, 2),
+                "expected_discount_min": expected_discount_min,
+                "expected_discount_max": expected_discount_max,
+                "final_price_hint": round(total_price * (1 - hint_discount / 100), 2),
+                "urgency_text": f"{random.randint(2, 8)} people negotiating now",
+                "scheme_snapshot": {
+                    "recommendation_id": rec_id,
+                    "scheme_index": scheme_index,
+                    "items": items,
+                    "theme": scheme.get("theme"),
+                    "style_tags": scheme.get("style_tags") or []
+                }
+            })
+
+            if len(cards) >= limit:
+                return cards
+
+    # Fallback: synthesize quick scheme bundles from top products.
+    result = await service.search_products({"page_size": min(max(limit * 4, 12), 60), "sort_by": "rating"})
+    products = result.get("products", [])
+    chunk_size = 4
+
+    for idx in range(0, len(products), chunk_size):
+        group = products[idx: idx + chunk_size]
+        if len(group) < 3:
+            continue
+
+        total_price = round(sum(float(p.get("price_current") or 0) for p in group), 2)
+        if total_price <= 0:
+            continue
+
+        styles = []
+        for p in group:
+            for style in p.get("styles", []) or []:
+                if style not in styles:
+                    styles.append(style)
+
+        cards.append({
+            "scheme_id": f"fallback_{idx // chunk_size}",
+            "scheme_name": f"Night Market Combo #{idx // chunk_size + 1}",
+            "theme": "Deal Hunter Set",
+            "style_tags": styles[:3],
+            "items_count": len(group),
+            "cover_image": (group[0].get("images") or [None])[0],
+            "original_price": total_price,
+            "expected_discount_min": 8.0,
+            "expected_discount_max": 12.0,
+            "final_price_hint": round(total_price * 0.9, 2),
+            "urgency_text": f"{random.randint(1, 5)} people negotiating now",
+            "scheme_snapshot": {
+                "items": [
+                    {
+                        "product_id": p.get("spu_id"),
+                        "product_name": p.get("title"),
+                        "product_image": (p.get("images") or [None])[0],
+                        "price": float(p.get("price_current") or 0)
+                    }
+                    for p in group
+                ],
+                "theme": "Deal Hunter Set",
+                "style_tags": styles[:3]
+            }
+        })
+
+        if len(cards) >= limit:
+            break
+
+    return cards[:limit]

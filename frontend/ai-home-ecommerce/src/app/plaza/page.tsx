@@ -11,7 +11,8 @@ import {
   TrendingUp,
   Star,
   Bell,
-  ShoppingBag
+  ShoppingBag,
+  Handshake
 } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
@@ -23,6 +24,7 @@ import { AchievementCard } from './components/AchievementCard';
 import { ReviewCard } from './components/ReviewCard';
 import { WakeUpCard } from './components/WakeUpCard';
 import { ProductDetailModal } from './components/ProductDetailModal';
+import { NightMarketPanel } from './components/NightMarketPanel';
 
 const CATEGORY_PREFERENCES = ['Furniture', 'Home Decoration', 'Lighting'];
 const STYLE_PREFERENCES = ['modern', 'farmhouse', 'industrial'];
@@ -197,6 +199,7 @@ async function fetchPlazaData({
 }
 
 export default function PlazaPage() {
+  const [activeTab, setActiveTab] = useState<'plaza' | 'night_market'>('plaza');
   const [data, setData] = useState<PlazaData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -354,6 +357,39 @@ export default function PlazaPage() {
 
       {/* Main Content */}
       <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8"
+        >
+          <div className="inline-flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+            <button
+              onClick={() => setActiveTab('plaza')}
+              className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === 'plaza'
+                ? 'bg-indigo-600 text-white shadow'
+                : 'text-slate-600 hover:bg-slate-50'
+                }`}
+            >
+              Plaza Discovery
+            </button>
+            <button
+              onClick={() => setActiveTab('night_market')}
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === 'night_market'
+                ? 'bg-slate-900 text-white shadow'
+                : 'text-slate-600 hover:bg-slate-50'
+                }`}
+            >
+              <Handshake className="h-4 w-4" />
+              Night Market
+            </button>
+          </div>
+        </motion.section>
+
+        {activeTab === 'night_market' ? (
+          <NightMarketPanel sessionId={sessionId} />
+        ) : (
+          <>
 
         {/* 偏好设置 (轻量个性化) */}
         <motion.section
@@ -564,6 +600,8 @@ export default function PlazaPage() {
             </div>
           </div>
         </motion.section>
+          </>
+        )}
       </main>
 
       {/* Footer */}
