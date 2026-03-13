@@ -227,6 +227,36 @@ CREATE INDEX IF NOT EXISTS idx_agent_activities_session_id ON agent_activities(s
 CREATE INDEX IF NOT EXISTS idx_agent_activities_agent_type ON agent_activities(agent_type);
 CREATE INDEX IF NOT EXISTS idx_agent_activities_created_at ON agent_activities(created_at);
 
+-- 对话会话表（多对话管理）
+CREATE TABLE IF NOT EXISTS conversations (
+    id SERIAL PRIMARY KEY,
+    conversation_id VARCHAR(64) UNIQUE NOT NULL,
+    user_id VARCHAR(64) NOT NULL DEFAULT 'demo_user_001',
+    title VARCHAR(200) DEFAULT '新对话',
+    session_id VARCHAR(64),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
+
+-- 对话消息表（持久化聊天记录）
+CREATE TABLE IF NOT EXISTS conversation_messages (
+    id SERIAL PRIMARY KEY,
+    conversation_id VARCHAR(64) NOT NULL,
+    message_id VARCHAR(64) NOT NULL,
+    role VARCHAR(20) NOT NULL,
+    content TEXT NOT NULL,
+    message_type VARCHAR(20) DEFAULT 'text',
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_conv_messages_conversation_id ON conversation_messages(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_conv_messages_created_at ON conversation_messages(created_at);
+
 -- 更新触发器函数
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -258,6 +288,12 @@ CREATE TRIGGER update_recommendations_updated_at
 DROP TRIGGER IF EXISTS update_orders_updated_at ON orders;
 CREATE TRIGGER update_orders_updated_at
     BEFORE UPDATE ON orders
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_conversations_updated_at ON conversations;
+CREATE TRIGGER update_conversations_updated_at
+    BEFORE UPDATE ON conversations
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 """

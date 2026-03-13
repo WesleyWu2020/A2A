@@ -30,7 +30,8 @@ import { ProjectSwitcher } from '@/components/ProjectSwitcher';
 import { ProjectSettingsPanel } from '@/components/ProjectSettingsPanel';
 import { FavoritesPanel } from '../../components/FavoritesPanel';
 import { SkillResultsBadge } from '@/components/SkillResultsBadge';
-import { useChatStore, useAgentTimelineStore, useSchemeStore, useOrderStore, useMemoryStore, useProjectStore } from '@/store';
+import { ChatSidebar } from '@/components/ChatSidebar';
+import { useChatStore, useAgentTimelineStore, useSchemeStore, useOrderStore, useMemoryStore, useProjectStore, useConversationStore } from '@/store';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { ChatMessage, Scheme, SchemeRound, NegotiationRecord } from '@/types';
@@ -55,6 +56,8 @@ const SUMMARIZING_STATUS_ROTATION = [
   'Finalizing package comparisons and trade-offs...',
   'Optimizing value picks based on your safety and eco needs...',
 ];
+
+const RIGHT_PANEL_WIDTH_STORAGE_KEY = 'chat_right_panel_width';
 
 function TypewriterText({ text, enabled }: { text: string; enabled: boolean }) {
   const [displayed, setDisplayed] = useState(enabled ? '' : text);
@@ -384,8 +387,10 @@ export default function ChatPage() {
   const summarizingPulseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const rightPanelRef = useRef<HTMLDivElement>(null);
-  const isResizingRef = useRef(false);
+  const isVerticalResizingRef = useRef(false);
+  const isHorizontalResizingRef = useRef(false);
   const [topPanelRatio, setTopPanelRatio] = useState(42);
+  const [rightPanelWidth, setRightPanelWidth] = useState(560);
   const [streamingPreview, setStreamingPreview] = useState('');
 
   // negotiation dialog
@@ -395,7 +400,7 @@ export default function ChatPage() {
   // selected scheme
   const [selectedSchemeId, setSelectedSchemeId] = useState<string | null>(null);
 
-  const { messages, isLoading, sendMessage, initializeSession, sessionId } = useChatStore();
+  const { messages, isLoading, sendMessage, sessionId } = useChatStore();
   const { stages, isActive, setIsActive, addStage, updateStage, clearStages } = useAgentTimelineStore();
   const {
     schemes,
@@ -423,6 +428,8 @@ export default function ChatPage() {
     loadProjects,
   } = useProjectStore();
 
+  const { initFromLocalStorage, sidebarOpen } = useConversationStore();
+
   // project panels
   const [showProjectSettings, setShowProjectSettings] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
@@ -438,13 +445,44 @@ export default function ChatPage() {
     },
   });
 
-  // init session + load memory + load projects
+  // init session from saved conversations + load memory + load projects
   useEffect(() => {
-    if (!sessionId) initializeSession();
+    initFromLocalStorage();
     loadUserMemory();
     loadProjects();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Restore persisted right panel width (and re-clamp when sidebar visibility changes).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = localStorage.getItem(RIGHT_PANEL_WIDTH_STORAGE_KEY);
+    if (!raw) return;
+
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return;
+
+    const sidebarOffset = sidebarOpen ? 280 : 0;
+    const maxWidth = Math.max(420, window.innerWidth - sidebarOffset - 420);
+    const clamped = Math.min(maxWidth, Math.max(420, parsed));
+    setRightPanelWidth(clamped);
+  }, [sidebarOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(RIGHT_PANEL_WIDTH_STORAGE_KEY, String(Math.round(rightPanelWidth)));
+  }, [rightPanelWidth]);
+
+  useEffect(() => {
+    const handleWindowResize = () => {
+      const sidebarOffset = sidebarOpen ? 280 : 0;
+      const maxWidth = Math.max(420, window.innerWidth - sidebarOffset - 420);
+      setRightPanelWidth((prev) => Math.min(maxWidth, Math.max(420, prev)));
+    };
+
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  }, [sidebarOpen]);
 
   // auto-scroll chat
   useEffect(() => {
@@ -542,15 +580,26 @@ export default function ChatPage() {
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizingRef.current || !rightPanelRef.current) return;
-      const rect = rightPanelRef.current.getBoundingClientRect();
-      const nextRatio = ((e.clientY - rect.top) / rect.height) * 100;
-      const clampedRatio = Math.min(72, Math.max(28, nextRatio));
-      setTopPanelRatio(clampedRatio);
+      if (isVerticalResizingRef.current && rightPanelRef.current) {
+        const rect = rightPanelRef.current.getBoundingClientRect();
+        const nextRatio = ((e.clientY - rect.top) / rect.height) * 100;
+        const clampedRatio = Math.min(72, Math.max(28, nextRatio));
+        setTopPanelRatio(clampedRatio);
+      }
+
+      if (isHorizontalResizingRef.current) {
+        const sidebarOffset = sidebarOpen ? 280 : 0;
+        const maxWidth = Math.max(420, window.innerWidth - sidebarOffset - 420);
+        const minWidth = 420;
+        const nextWidth = window.innerWidth - e.clientX;
+        const clampedWidth = Math.min(maxWidth, Math.max(minWidth, nextWidth));
+        setRightPanelWidth(clampedWidth);
+      }
     };
 
     const handleMouseUp = () => {
-      isResizingRef.current = false;
+      isVerticalResizingRef.current = false;
+      isHorizontalResizingRef.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
@@ -562,7 +611,7 @@ export default function ChatPage() {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, []);
+  }, [sidebarOpen]);
 
   // 切换方案轮次时，清空右侧当前选中的 package，避免跨轮次残留选中态
   useEffect(() => {
@@ -748,8 +797,14 @@ export default function ChatPage() {
 
       <div className="flex flex-1 overflow-hidden">
 
+        {/* ── Conversation Sidebar ── */}
+        <AnimatePresence>
+          {sidebarOpen && <ChatSidebar />}
+        </AnimatePresence>
+        {!sidebarOpen && <ChatSidebar />}
+
         {/* ── Left: Chat ── */}
-        <div className="flex w-1/2 flex-col border-r border-slate-200 bg-white">
+        <div className="flex flex-1 flex-col border-r border-slate-200 bg-white min-w-0">
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-5 py-5">
             <div className="mx-auto max-w-xl space-y-5">
@@ -862,8 +917,23 @@ export default function ChatPage() {
           </div>
         </div>
 
+        <div
+          onMouseDown={() => {
+            isHorizontalResizingRef.current = true;
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+          }}
+          className="group relative w-2 shrink-0 cursor-col-resize bg-slate-100"
+        >
+          <div className="absolute left-1/2 top-1/2 h-16 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-300 transition-colors group-hover:bg-indigo-400" />
+        </div>
+
         {/* ── Right: Timeline + Packages ── */}
-        <div ref={rightPanelRef} className="flex w-1/2 flex-col bg-slate-50">
+        <div
+          ref={rightPanelRef}
+          className="flex shrink-0 flex-col bg-slate-50"
+          style={{ width: `${rightPanelWidth}px` }}
+        >
 
           {/* Right-top: Agent Activity Log */}
           <div className={cn(
@@ -914,7 +984,7 @@ export default function ChatPage() {
           {hasSchemes && (
             <div
               onMouseDown={() => {
-                isResizingRef.current = true;
+                isVerticalResizingRef.current = true;
                 document.body.style.cursor = 'row-resize';
                 document.body.style.userSelect = 'none';
               }}

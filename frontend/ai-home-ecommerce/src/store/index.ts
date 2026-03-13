@@ -16,8 +16,9 @@ import {
   ProjectContext,
   FavoriteItem,
   SkillInvocation,
+  Conversation,
 } from '@/types';
-import { apiClient, getWebSocketClient } from '@/lib/api';
+import { apiClient, getWebSocketClient, resetWebSocketClient } from '@/lib/api';
 
 // ==================== Chat Store ====================
 
@@ -35,6 +36,7 @@ interface ChatState {
   sendMessage: (content: string, options?: { onToken?: (text: string) => void }) => Promise<void>;
   clearMessages: () => void;
   initializeSession: () => void;
+  loadMessages: (messages: ChatMessage[]) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -56,7 +58,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setCurrentStage: (stage) => set({ currentStage: stage }),
 
   sendMessage: async (content, options) => {
+    // Guard against init race: user can send before conversation bootstrap finishes.
+    // In that case we create one on-demand so sidebar/history always has this chat.
     let { sessionId } = get();
+    const conversationStore = useConversationStore.getState();
+    if (!conversationStore.activeConversationId) {
+      await conversationStore.createNewConversation();
+      sessionId = get().sessionId;
+    }
+
     const { messages, addMessage, setIsLoading } = get();
 
     // Ensure session exists before sending
@@ -74,6 +84,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       type: 'text',
     };
     addMessage(userMessage);
+
+    // Persist user message to conversation
+    useConversationStore.getState().persistMessage(userMessage);
 
     setIsLoading(true);
 
@@ -152,29 +165,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
         // 添加 AI 回复（后端返回完整 ChatMessage 对象）
         const messageData = data.message;
+        let assistantMsg: ChatMessage | null = null;
         if (messageData && typeof messageData === 'object') {
-          addMessage(messageData as ChatMessage);
+          assistantMsg = messageData as ChatMessage;
+          addMessage(assistantMsg);
         } else if (typeof messageData === 'string') {
           // Fallback: message is a plain string
-          addMessage({
+          assistantMsg = {
             id: Date.now().toString(),
             role: 'assistant',
             content: messageData,
             timestamp: new Date().toISOString(),
             type: 'text',
-          });
+          };
+          addMessage(assistantMsg);
         } else if (streamedText) {
-          addMessage({
+          assistantMsg = {
             id: Date.now().toString(),
             role: 'assistant',
             content: streamedText,
             timestamp: new Date().toISOString(),
             type: 'text',
-          });
+          };
+          addMessage(assistantMsg);
         }
 
         // 如果有方案数据，存入 scheme store 并创建方案轮次
         const schemes = data.schemes as unknown[];
+        let schemeRound: SchemeRound | null = null;
         if (schemes && schemes.length > 0) {
           const schemeArr = schemes as Scheme[];
           const schemeStore = useSchemeStore.getState();
@@ -192,7 +210,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const lastAssistantMsg = [...currentMessages].reverse().find(m => m.role === 'assistant');
           const messageId = lastAssistantMsg?.id || Date.now().toString();
 
-          const round: SchemeRound = {
+          schemeRound = {
             id: `round_${Date.now()}_${roundNumber}`,
             roundNumber,
             schemes: schemeArr,
@@ -206,13 +224,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
             set((state) => ({
               messages: state.messages.map((msg) =>
                 msg.id === lastAssistantMsg.id
-                  ? { ...msg, schemeRoundId: round.id }
+                  ? { ...msg, schemeRoundId: schemeRound!.id }
                   : msg
               ),
             }));
           }
 
-          schemeStore.addSchemeRound(round);
+          schemeStore.addSchemeRound(schemeRound);
+        }
+
+        // Persist assistant message to conversation (include scheme data in metadata)
+        if (assistantMsg) {
+          const metadata: Record<string, unknown> | undefined = schemeRound
+            ? { schemeRound }
+            : undefined;
+          useConversationStore.getState().persistMessage(assistantMsg, metadata);
         }
 
         // 更新 Context Pins（需求标签组）
@@ -243,11 +269,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   clearMessages: () => set({ messages: [], sessionId: null, currentStage: null }),
 
+  loadMessages: (messages) => set({ messages }),
+
   initializeSession: () => {
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     set({ sessionId });
     
     // 初始化 WebSocket 连接
+    resetWebSocketClient();
     const wsClient = getWebSocketClient(sessionId);
     wsClient.connect().then(() => {
       console.log('WebSocket connected for session:', sessionId);
@@ -569,6 +598,12 @@ export const useCartStore = create<CartState>((set, get) => ({
 // 用固定 userId 模拟匿名用户（Demo用途，真实场景应从auth获取）
 export const DEMO_USER_ID = 'demo_user_001';
 
+const getConversationMessagesStorageKey = (conversationId: string) =>
+  `conversation_messages_${conversationId}`;
+
+// Monotonic switch token: only latest switch request can commit UI state.
+let conversationSwitchRequestSeq = 0;
+
 interface MemoryState {
   // 长期记忆
   userMemory: UserLongTermMemory | null;
@@ -812,4 +847,336 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   setLastSkillInvocations: (invocations) => set({ lastSkillInvocations: invocations }),
+}));
+
+// ==================== Conversation Store ====================
+
+interface ConversationState {
+  conversations: Conversation[];
+  activeConversationId: string | null;
+  isLoading: boolean;
+  sidebarOpen: boolean;
+
+  // Actions
+  loadConversations: () => Promise<void>;
+  createNewConversation: () => Promise<void>;
+  switchConversation: (conversationId: string) => Promise<void>;
+  renameConversation: (conversationId: string, title: string) => Promise<void>;
+  deleteConversation: (conversationId: string) => Promise<void>;
+  persistMessage: (message: ChatMessage, metadata?: Record<string, unknown>) => void;
+  setSidebarOpen: (open: boolean) => void;
+  toggleSidebar: () => void;
+  initFromLocalStorage: () => Promise<void>;
+}
+
+export const useConversationStore = create<ConversationState>((set, get) => ({
+  conversations: [],
+  activeConversationId: null,
+  isLoading: false,
+  sidebarOpen: true,
+
+  setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+
+  loadConversations: async () => {
+    set({ isLoading: true });
+    try {
+      const res = await apiClient.listConversations(DEMO_USER_ID);
+      if (res.success && res.data) {
+        set({ conversations: res.data.conversations || [] });
+      }
+    } catch (e) {
+      console.warn('Failed to load conversations:', e);
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  createNewConversation: async () => {
+    try {
+      const res = await apiClient.createConversation(DEMO_USER_ID);
+      if (res.success && res.data) {
+        const { conversation_id, session_id, title, created_at } = res.data;
+        const newConv: Conversation = {
+          conversation_id,
+          user_id: DEMO_USER_ID,
+          title,
+          session_id,
+          created_at,
+          updated_at: created_at,
+        };
+
+        set((s) => ({
+          conversations: [newConv, ...s.conversations],
+          activeConversationId: conversation_id,
+        }));
+
+        // Reset chat state for new conversation
+        useChatStore.getState().clearMessages();
+        useChatStore.getState().setSessionId(session_id);
+        useSchemeStore.getState().clearSchemeHistory();
+        useAgentTimelineStore.getState().clearStages();
+        useMemoryStore.getState().setContextPins([]);
+
+        // Reconnect WebSocket for new session
+        resetWebSocketClient();
+        const wsClient = getWebSocketClient(session_id);
+        wsClient.connect().catch(() => {});
+
+        // Persist to localStorage
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('activeConversationId', conversation_id);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to create conversation:', e);
+    }
+  },
+
+  switchConversation: async (conversationId) => {
+    const { activeConversationId } = get();
+    if (conversationId === activeConversationId) return;
+
+    const requestSeq = ++conversationSwitchRequestSeq;
+
+    set({ isLoading: true });
+    try {
+      const target = get().conversations.find((c) => c.conversation_id === conversationId);
+      if (!target) return;
+
+      // Optimistic switch so sidebar click always appears responsive.
+      set({ activeConversationId: conversationId });
+      useChatStore.getState().clearMessages();
+      useChatStore.getState().setSessionId(target.session_id);
+      useSchemeStore.getState().clearSchemeHistory();
+      useAgentTimelineStore.getState().clearStages();
+      useMemoryStore.getState().setContextPins([]);
+
+      // Reconnect WebSocket immediately for the target session.
+      resetWebSocketClient();
+      const wsClient = getWebSocketClient(target.session_id);
+      wsClient.connect().catch(() => {});
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('activeConversationId', conversationId);
+      }
+
+      // Primary source: persisted conversation messages table.
+      let chatMessages: ChatMessage[] = [];
+      const convRes = await apiClient.getConversation(conversationId);
+      if (convRes.success && convRes.data) {
+        chatMessages = (convRes.data.messages || []).map((m) => ({
+          id: m.id,
+          role: m.role as 'user' | 'assistant' | 'system',
+          content: m.content,
+          type: (m.type || 'text') as ChatMessage['type'],
+          timestamp: m.timestamp || new Date().toISOString(),
+        }));
+
+        if (typeof window !== 'undefined' && chatMessages.length > 0) {
+          try {
+            localStorage.setItem(
+              getConversationMessagesStorageKey(conversationId),
+              JSON.stringify(chatMessages.slice(-300))
+            );
+          } catch {
+            // Ignore local cache failures.
+          }
+        }
+      }
+
+      // Fallback source: in-memory chat history from /api/chat/history.
+      if (chatMessages.length === 0 && target.session_id) {
+        const historyRes = await apiClient.getChatHistory(target.session_id);
+        if (historyRes.success && historyRes.data) {
+          chatMessages = (historyRes.data.messages || []).map((raw, idx) => {
+            const m = raw as Record<string, unknown>;
+            return {
+              id: m.id ? String(m.id) : `${target.session_id}-${idx}`,
+              role: (m.role ? String(m.role) : 'assistant') as 'user' | 'assistant' | 'system',
+              content: m.content ? String(m.content) : '',
+              type: (m.type ? String(m.type) : 'text') as ChatMessage['type'],
+              timestamp: m.timestamp ? String(m.timestamp) : new Date().toISOString(),
+            };
+          });
+        }
+      }
+
+      // Last fallback: browser-local cache, used when backend history is empty.
+      if (chatMessages.length === 0 && typeof window !== 'undefined') {
+        try {
+          const raw = localStorage.getItem(getConversationMessagesStorageKey(conversationId));
+          if (raw) {
+            const parsed = JSON.parse(raw) as ChatMessage[];
+            if (Array.isArray(parsed)) {
+              chatMessages = parsed;
+            }
+          }
+        } catch {
+          // Ignore cache parse errors and continue with empty list.
+        }
+      }
+
+      // Ignore stale request results when user already switched again.
+      if (
+        requestSeq !== conversationSwitchRequestSeq ||
+        get().activeConversationId !== conversationId
+      ) {
+        return;
+      }
+
+      useChatStore.getState().loadMessages(chatMessages);
+
+      // Rebuild scheme rounds from message metadata so right panel shows
+      // the same plans that were generated in the original conversation.
+      const schemeStore = useSchemeStore.getState();
+      let roundIdx = 0;
+      const messageIdToRoundId: Record<string, string> = {};
+      if (convRes?.success && convRes.data?.messages) {
+        for (const m of convRes.data.messages) {
+          const meta = (m.metadata || {}) as Record<string, unknown>;
+          const savedRound = meta.schemeRound as Record<string, unknown> | undefined;
+          if (savedRound && savedRound.schemes) {
+            roundIdx++;
+            const roundId = String(savedRound.id || `round_restored_${roundIdx}`);
+            const round: SchemeRound = {
+              id: roundId,
+              roundNumber: (savedRound.roundNumber as number) || roundIdx,
+              schemes: savedRound.schemes as Scheme[],
+              timestamp: String(savedRound.timestamp || m.timestamp || new Date().toISOString()),
+              summary: String(savedRound.summary || ''),
+              messageId: m.id,
+            };
+            schemeStore.addSchemeRound(round);
+            messageIdToRoundId[m.id] = roundId;
+          }
+        }
+      }
+
+      // Link messages to their scheme rounds so inline scheme cards appear.
+      if (Object.keys(messageIdToRoundId).length > 0) {
+        const linked = chatMessages.map((msg) =>
+          messageIdToRoundId[msg.id]
+            ? { ...msg, schemeRoundId: messageIdToRoundId[msg.id] }
+            : msg
+        );
+        useChatStore.getState().loadMessages(linked);
+      }
+    } catch (e) {
+      console.warn('Failed to switch conversation:', e);
+    } finally {
+      if (requestSeq === conversationSwitchRequestSeq) {
+        set({ isLoading: false });
+      }
+    }
+  },
+
+  renameConversation: async (conversationId, title) => {
+    try {
+      await apiClient.renameConversation(conversationId, title);
+      set((s) => ({
+        conversations: s.conversations.map((c) =>
+          c.conversation_id === conversationId ? { ...c, title } : c
+        ),
+      }));
+    } catch (e) {
+      console.warn('Failed to rename conversation:', e);
+    }
+  },
+
+  deleteConversation: async (conversationId) => {
+    try {
+      await apiClient.deleteConversation(conversationId);
+      const { conversations, activeConversationId } = get();
+      const remaining = conversations.filter((c) => c.conversation_id !== conversationId);
+      set({ conversations: remaining });
+
+      // If deleted the active one, switch to next or create new
+      if (conversationId === activeConversationId) {
+        if (remaining.length > 0) {
+          await get().switchConversation(remaining[0].conversation_id);
+        } else {
+          await get().createNewConversation();
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to delete conversation:', e);
+    }
+  },
+
+  persistMessage: (message, metadata) => {
+    const { activeConversationId, conversations } = get();
+    if (!activeConversationId) return;
+    const nowIso = new Date().toISOString();
+
+    // Save message to backend (fire-and-forget)
+    apiClient.saveMessage(activeConversationId, {
+      message_id: message.id,
+      role: message.role,
+      content: message.content,
+      message_type: message.type || 'text',
+      metadata: metadata,
+    }).catch(() => {});
+
+    // Save to browser-local cache as a resilient fallback for history restore.
+    if (typeof window !== 'undefined') {
+      try {
+        const key = getConversationMessagesStorageKey(activeConversationId);
+        const raw = localStorage.getItem(key);
+        const cached = raw ? (JSON.parse(raw) as ChatMessage[]) : [];
+        const next = Array.isArray(cached) ? [...cached, message] : [message];
+        // Prevent unbounded growth in local cache.
+        const trimmed = next.slice(-300);
+        localStorage.setItem(key, JSON.stringify(trimmed));
+      } catch {
+        // Ignore local cache failures.
+      }
+    }
+
+    // Keep current conversation fresh and pinned near top.
+    set((s) => {
+      const next = s.conversations.map((c) =>
+        c.conversation_id === activeConversationId ? { ...c, updated_at: nowIso } : c
+      );
+      next.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+      return { conversations: next };
+    });
+
+    // Auto-generate title from first user message
+    const conv = conversations.find((c) => c.conversation_id === activeConversationId);
+    if (conv && conv.title === 'New Chat' && message.role === 'user') {
+      apiClient.generateConversationTitle(activeConversationId, message.content)
+        .then((res) => {
+          if (res.success && res.data?.title) {
+            set((s) => ({
+              conversations: s.conversations.map((c) =>
+                c.conversation_id === activeConversationId
+                  ? { ...c, title: res.data.title, updated_at: new Date().toISOString() }
+                  : c
+              ),
+            }));
+          }
+        })
+        .catch(() => {});
+    }
+  },
+
+  initFromLocalStorage: async () => {
+    // Load conversation list first
+    await get().loadConversations();
+    const { conversations } = get();
+
+    // Try to restore from localStorage
+    const savedId = typeof window !== 'undefined' ? localStorage.getItem('activeConversationId') : null;
+
+    if (savedId && conversations.some((c) => c.conversation_id === savedId)) {
+      await get().switchConversation(savedId);
+    } else if (conversations.length > 0) {
+      // Resume last conversation
+      await get().switchConversation(conversations[0].conversation_id);
+    } else {
+      // First visit — create a new conversation
+      await get().createNewConversation();
+    }
+  },
 }));

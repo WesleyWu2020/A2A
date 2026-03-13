@@ -153,6 +153,7 @@ from app.api.plaza import router as plaza_router
 from app.api.memory import router as memory_router
 from app.api.projects import router as projects_router
 from app.api.skills import router as skills_router
+from app.api.conversations import router as conversations_router
 
 # 注册 API 路由
 app.include_router(chat_router, prefix="/api")
@@ -164,6 +165,7 @@ app.include_router(plaza_router, prefix="/api/plaza", tags=["购物广场"])
 app.include_router(memory_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
 app.include_router(skills_router, prefix="/api")
+app.include_router(conversations_router, prefix="/api")
 
 # 注册 WebSocket 路由
 from app.websocket import websocket_endpoint

@@ -343,3 +343,14 @@ export interface SkillInvocation {
   timestamp: string;
 }
 
+// ==================== 对话会话管理类型 ====================
+
+export interface Conversation {
+  conversation_id: string;
+  user_id: string;
+  title: string;
+  session_id: string;
+  created_at: string;
+  updated_at: string;
+}
+

@@ -31,11 +31,10 @@ export function ProductCard({
   if (variant === 'compact') {
     return (
       <motion.div
-        whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         onClick={onClick}
         className={cn(
-          'flex items-center gap-3 rounded-xl border border-slate-100 bg-white p-3 shadow-sm transition-shadow hover:shadow-md cursor-pointer',
+          'flex items-center gap-3 rounded-xl border border-slate-100 bg-white p-3 shadow-sm transition-all duration-200 hover:shadow-md hover:scale-[1.02] cursor-pointer',
           className
         )}
       >
@@ -126,11 +125,10 @@ export function ProductCard({
 
   return (
     <motion.div
-      whileHover={{ y: -4, boxShadow: '0 12px 24px -8px rgba(99, 102, 241, 0.15)' }}
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
       className={cn(
-        'group overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm transition-all cursor-pointer',
+        'group overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_12px_24px_-8px_rgba(99,102,241,0.15)] cursor-pointer',
         className
       )}
     >

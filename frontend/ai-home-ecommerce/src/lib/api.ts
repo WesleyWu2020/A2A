@@ -15,6 +15,7 @@ import {
   ProjectContext,
   FavoriteItem,
   SkillInvocation,
+  Conversation,
 } from '@/types';
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -174,6 +175,12 @@ class ApiClient {
   // 获取方案列表 (按 session)
   async getSchemes(sessionId: string): Promise<ApiResponse<Scheme[]>> {
     return this.request<Scheme[]>(`/api/recommend/session/${sessionId}`);
+  }
+
+  async getChatHistory(sessionId: string, limit = 100): Promise<ApiResponse<{ session_id: string; messages: Array<Record<string, unknown>>; total: number }>> {
+    return this.request<{ session_id: string; messages: Array<Record<string, unknown>>; total: number }>(
+      `/api/chat/history/${sessionId}?limit=${limit}`
+    );
   }
 
   // 获取方案详情
@@ -353,6 +360,50 @@ class ApiClient {
     return this.request<Record<string, unknown>>('/api/skills/dimension/check', {
       method: 'POST',
       body: JSON.stringify({ room_dimensions: roomDimensions, existing_furniture: existingFurniture, proposed_furniture: proposedFurniture }),
+    });
+  }
+
+  // ── Conversation API ──────────────────────────────────────────────────
+
+  async createConversation(userId: string, title?: string): Promise<ApiResponse<{ conversation_id: string; session_id: string; title: string; created_at: string }>> {
+    return this.request('/api/conversations/create', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, title }),
+    });
+  }
+
+  async listConversations(userId: string, limit = 50): Promise<ApiResponse<{ conversations: Conversation[] }>> {
+    return this.request<{ conversations: Conversation[] }>(`/api/conversations/user/${userId}?limit=${limit}`);
+  }
+
+  async getConversation(conversationId: string): Promise<ApiResponse<Conversation & { messages: Array<{ id: string; role: string; content: string; type: string; timestamp: string; metadata: Record<string, unknown> }> }>> {
+    return this.request(`/api/conversations/${conversationId}`);
+  }
+
+  async saveMessage(conversationId: string, message: { message_id: string; role: string; content: string; message_type?: string; metadata?: Record<string, unknown> }): Promise<ApiResponse<{ status: string }>> {
+    return this.request(`/api/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(message),
+    });
+  }
+
+  async renameConversation(conversationId: string, title: string): Promise<ApiResponse<{ title: string }>> {
+    return this.request(`/api/conversations/${conversationId}/title`, {
+      method: 'PUT',
+      body: JSON.stringify({ title }),
+    });
+  }
+
+  async deleteConversation(conversationId: string): Promise<ApiResponse<{ deleted: boolean }>> {
+    return this.request(`/api/conversations/${conversationId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async generateConversationTitle(conversationId: string, firstMessage: string): Promise<ApiResponse<{ title: string }>> {
+    return this.request(`/api/conversations/${conversationId}/generate-title`, {
+      method: 'POST',
+      body: JSON.stringify({ first_message: firstMessage }),
     });
   }
 }
