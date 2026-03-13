@@ -303,6 +303,65 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 CREATE INDEX IF NOT EXISTS idx_conv_messages_conversation_id ON conversation_messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_conv_messages_created_at ON conversation_messages(created_at);
 
+-- Seller workspace products
+CREATE TABLE IF NOT EXISTS seller_workspace_products (
+    id SERIAL PRIMARY KEY,
+    product_id VARCHAR(64) UNIQUE NOT NULL,
+    seller_id VARCHAR(64) NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    category VARCHAR(80) NOT NULL,
+    list_price DECIMAL(12, 2) NOT NULL,
+    floor_price DECIMAL(12, 2) NOT NULL,
+    currency VARCHAR(8) DEFAULT 'USD',
+    inventory INTEGER DEFAULT 0,
+    highlights JSONB DEFAULT '[]',
+    description TEXT,
+    image_urls JSONB DEFAULT '[]',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_seller_workspace_products_seller_id ON seller_workspace_products(seller_id);
+CREATE INDEX IF NOT EXISTS idx_seller_workspace_products_category ON seller_workspace_products(category);
+
+-- Seller agent strategy profile
+CREATE TABLE IF NOT EXISTS seller_agent_strategies (
+    id SERIAL PRIMARY KEY,
+    seller_id VARCHAR(64) UNIQUE NOT NULL,
+    persona_name VARCHAR(120) NOT NULL,
+    tone VARCHAR(255) NOT NULL,
+    opening_style VARCHAR(255) NOT NULL,
+    negotiation_style VARCHAR(32) NOT NULL DEFAULT 'balanced',
+    anchor_ratio DECIMAL(5, 4) NOT NULL DEFAULT 0.9600,
+    max_auto_discount_ratio DECIMAL(5, 4) NOT NULL DEFAULT 0.1200,
+    upsell_rule VARCHAR(255) NOT NULL,
+    forbidden_promises JSONB DEFAULT '[]',
+    custom_prompt TEXT DEFAULT '',
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_seller_agent_strategies_seller_id ON seller_agent_strategies(seller_id);
+
+-- Seller sandbox simulation logs
+CREATE TABLE IF NOT EXISTS seller_sandbox_runs (
+    id SERIAL PRIMARY KEY,
+    run_id VARCHAR(64) UNIQUE NOT NULL,
+    seller_id VARCHAR(64) NOT NULL,
+    product_id VARCHAR(64) NOT NULL,
+    buyer_message TEXT NOT NULL,
+    buyer_offer_price DECIMAL(12, 2),
+    counter_price DECIMAL(12, 2),
+    accepted BOOLEAN DEFAULT FALSE,
+    discount_ratio DECIMAL(5, 4) DEFAULT 0,
+    rejection_reason VARCHAR(64),
+    coaching_tip TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_seller_sandbox_runs_seller_id ON seller_sandbox_runs(seller_id);
+CREATE INDEX IF NOT EXISTS idx_seller_sandbox_runs_created_at ON seller_sandbox_runs(created_at DESC);
+
 -- 更新触发器函数
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -352,6 +411,18 @@ CREATE TRIGGER update_limited_offers_updated_at
 DROP TRIGGER IF EXISTS update_conversations_updated_at ON conversations;
 CREATE TRIGGER update_conversations_updated_at
     BEFORE UPDATE ON conversations
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_seller_workspace_products_updated_at ON seller_workspace_products;
+CREATE TRIGGER update_seller_workspace_products_updated_at
+    BEFORE UPDATE ON seller_workspace_products
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_seller_agent_strategies_updated_at ON seller_agent_strategies;
+CREATE TRIGGER update_seller_agent_strategies_updated_at
+    BEFORE UPDATE ON seller_agent_strategies
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 """

@@ -3,13 +3,14 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Home, MessageCircle, ShoppingBag, Sparkles, User } from 'lucide-react';
+import { Home, MessageCircle, ShoppingBag, Sparkles, Store, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/plaza', label: 'Plaza', icon: ShoppingBag },
   { href: '/chat', label: 'AI Chat', icon: MessageCircle },
+  { href: '/seller', label: 'Seller Workspace', icon: Store },
   { href: '/order', label: 'My Order', icon: ShoppingBag },
   { href: '/profile', label: 'My Profile', icon: User },
 ];

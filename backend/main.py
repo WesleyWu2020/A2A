@@ -82,7 +82,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="多 Agent 家居电商系统 API",
+    description="Multi-agent home ecommerce system API",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
@@ -115,7 +115,7 @@ async def global_exception_handler(request, exc):
 
 
 # 健康检查
-@app.get("/health", tags=["健康检查"])
+@app.get("/health", tags=["Health"])
 async def health_check():
     """健康检查端点"""
     return {
@@ -129,7 +129,7 @@ async def health_check():
 
 
 # 根路径
-@app.get("/", tags=["根路径"])
+@app.get("/", tags=["Root"])
 async def root():
     """API 根路径"""
     return {
@@ -154,18 +154,20 @@ from app.api.memory import router as memory_router
 from app.api.projects import router as projects_router
 from app.api.skills import router as skills_router
 from app.api.conversations import router as conversations_router
+from app.api.seller import router as seller_router
 
 # 注册 API 路由
 app.include_router(chat_router, prefix="/api")
 app.include_router(recommend_router, prefix="/api")
 app.include_router(order_router, prefix="/api")
 app.include_router(products_router, prefix="/api")
-app.include_router(negotiation_router, prefix="/api/negotiation", tags=["议价"])
-app.include_router(plaza_router, prefix="/api/plaza", tags=["购物广场"])
+app.include_router(negotiation_router, prefix="/api/negotiation", tags=["Negotiation"])
+app.include_router(plaza_router, prefix="/api/plaza", tags=["Plaza"])
 app.include_router(memory_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
 app.include_router(skills_router, prefix="/api")
 app.include_router(conversations_router, prefix="/api")
+app.include_router(seller_router, prefix="/api")
 
 # 注册 WebSocket 路由
 from app.websocket import websocket_endpoint
@@ -178,7 +180,7 @@ async def websocket_route(websocket: WebSocket, session_id: str):
 
 
 # WebSocket 状态监控
-@app.get("/ws/stats", tags=["监控"])
+@app.get("/ws/stats", tags=["Monitoring"])
 async def websocket_stats():
     """WebSocket 连接统计"""
     from app.websocket import get_websocket_stats
@@ -191,7 +193,7 @@ async def websocket_stats():
 
 
 # 对话会话启动 API
-@app.post("/api/chat/start", tags=["对话"])
+@app.post("/api/chat/start", tags=["Chat"])
 async def chat_start():
     """创建新的对话会话"""
     import uuid as _uuid
@@ -207,7 +209,7 @@ async def chat_start():
 
 
 # 会话管理 API
-@app.post("/api/session/create", tags=["会话"])
+@app.post("/api/session/create", tags=["Session"])
 async def create_session(user_id: str = None):
     """创建新会话"""
     import uuid
@@ -244,7 +246,7 @@ async def create_session(user_id: str = None):
     }
 
 
-@app.get("/api/session/{session_id}", tags=["会话"])
+@app.get("/api/session/{session_id}", tags=["Session"])
 async def get_session(session_id: str):
     """获取会话信息"""
     from app.core.database import execute_query

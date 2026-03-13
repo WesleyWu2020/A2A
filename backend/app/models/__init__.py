@@ -14,6 +14,15 @@ from .recommendation import (
     RecommendRequest, RecommendResponse,
     NegotiationRequest, NegotiationResponse
 )
+from .seller import (
+    SellerProductCreate,
+    SellerProductUpdate,
+    SellerProductResponse,
+    SellerAgentStrategy,
+    SellerSandboxRequest,
+    SellerSandboxResponse,
+    SellerInsightSummary,
+)
 
 # 别名导出
 Product = ProductInDB
@@ -56,4 +65,12 @@ __all__ = [
     "RecommendResponse",
     "NegotiationRequest",
     "NegotiationResponse",
+    # Seller models
+    "SellerProductCreate",
+    "SellerProductUpdate",
+    "SellerProductResponse",
+    "SellerAgentStrategy",
+    "SellerSandboxRequest",
+    "SellerSandboxResponse",
+    "SellerInsightSummary",
 ]

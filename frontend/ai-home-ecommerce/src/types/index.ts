@@ -354,3 +354,98 @@ export interface Conversation {
   updated_at: string;
 }
 
+// ==================== Seller Workspace Types ====================
+
+export type SellerNegotiationStyle = 'quick_close' | 'balanced' | 'hard_bargain' | 'value_bundle';
+
+export interface SellerProduct {
+  product_id: string;
+  seller_id: string;
+  title: string;
+  category: string;
+  list_price: number;
+  floor_price: number;
+  currency: string;
+  inventory: number;
+  highlights: string[];
+  description?: string;
+  image_urls: string[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SellerProductPayload {
+  title: string;
+  category: string;
+  list_price: number;
+  floor_price: number;
+  currency: string;
+  inventory: number;
+  highlights: string[];
+  description?: string;
+  image_urls: string[];
+}
+
+export interface SellerAgentStrategy {
+  seller_id: string;
+  persona_name: string;
+  tone: string;
+  opening_style: string;
+  negotiation_style: SellerNegotiationStyle;
+  anchor_ratio: number;
+  max_auto_discount_ratio: number;
+  upsell_rule: string;
+  forbidden_promises: string[];
+  custom_prompt: string;
+  updated_at?: string;
+}
+
+export interface SellerSandboxPayload {
+  seller_id: string;
+  product_id: string;
+  buyer_message: string;
+  buyer_offer_price?: number;
+  round_index: number;
+  buyer_persona?: 'bargain_hunter' | 'premium_decider' | 'hesitant_planner' | 'auto';
+}
+
+export interface SellerSandboxResult {
+  accepted: boolean;
+  seller_reply: string;
+  counter_price?: number;
+  discount_ratio: number;
+  coaching_tip: string;
+  buyer_persona: string;
+  strategy_used: string;
+  win_probability: number;
+  predicted_cart_value: number;
+  guardrail_buffer: number;
+  alternative_strategy: string;
+  alternative_reply: string;
+  alternative_win_probability: number;
+  alternative_risk_note: string;
+  optimization_tip: string;
+  quick_action_label: string;
+  quick_action_code: string;
+  quick_action_patch: Record<string, string | number | boolean>;
+}
+
+export interface SellerInsightSummary {
+  seller_id: string;
+  total_products: number;
+  active_products: number;
+  avg_margin_ratio: number;
+  strategy_health: string;
+  sandbox_runs: number;
+  acceptance_rate: number;
+  top_rejection_reason: string;
+}
+
+export interface SellerWorkbenchData {
+  seller_id: string;
+  products: SellerProduct[];
+  strategy: SellerAgentStrategy;
+  insights: SellerInsightSummary;
+}
+

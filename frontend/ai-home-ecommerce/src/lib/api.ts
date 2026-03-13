@@ -14,8 +14,14 @@ import {
   ProjectDesign,
   ProjectContext,
   FavoriteItem,
-  SkillInvocation,
   Conversation,
+  SellerProduct,
+  SellerProductPayload,
+  SellerAgentStrategy,
+  SellerSandboxPayload,
+  SellerSandboxResult,
+  SellerInsightSummary,
+  SellerWorkbenchData,
 } from '@/types';
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -405,6 +411,48 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ first_message: firstMessage }),
     });
+  }
+
+  // ── Seller Workspace API ────────────────────────────────────────────────
+
+  async getSellerWorkbench(sellerId: string): Promise<ApiResponse<SellerWorkbenchData>> {
+    return this.request<SellerWorkbenchData>(`/api/seller/${sellerId}/workbench`);
+  }
+
+  async listSellerProducts(sellerId: string): Promise<ApiResponse<{ products: SellerProduct[] }>> {
+    return this.request<{ products: SellerProduct[] }>(`/api/seller/${sellerId}/products`);
+  }
+
+  async createSellerProduct(sellerId: string, payload: SellerProductPayload): Promise<ApiResponse<SellerProduct>> {
+    return this.request<SellerProduct>(`/api/seller/${sellerId}/products`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async parseSellerBulkProducts(sellerId: string, rawText: string): Promise<ApiResponse<{ parsed_products: SellerProductPayload[]; warnings: string[] }>> {
+    return this.request<{ parsed_products: SellerProductPayload[]; warnings: string[] }>(`/api/seller/${sellerId}/products/bulk-parse`, {
+      method: 'POST',
+      body: JSON.stringify({ raw_text: rawText }),
+    });
+  }
+
+  async updateSellerStrategy(sellerId: string, strategy: SellerAgentStrategy): Promise<ApiResponse<SellerAgentStrategy>> {
+    return this.request<SellerAgentStrategy>(`/api/seller/${sellerId}/strategy`, {
+      method: 'PUT',
+      body: JSON.stringify(strategy),
+    });
+  }
+
+  async simulateSeller(sellerId: string, payload: SellerSandboxPayload): Promise<ApiResponse<SellerSandboxResult>> {
+    return this.request<SellerSandboxResult>(`/api/seller/${sellerId}/sandbox/simulate`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getSellerInsights(sellerId: string): Promise<ApiResponse<SellerInsightSummary>> {
+    return this.request<SellerInsightSummary>(`/api/seller/${sellerId}/insights`);
   }
 }
 

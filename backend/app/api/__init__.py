@@ -8,6 +8,7 @@ from .recommend import router as recommend_router
 from .negotiation import router as negotiation_router
 from .order import router as order_router
 from .products import router as products_router
+from .seller import router as seller_router
 
 # 主路由
 api_router = APIRouter()
@@ -18,5 +19,6 @@ api_router.include_router(recommend_router, prefix="/recommend", tags=["Recommen
 api_router.include_router(negotiation_router, prefix="/negotiation", tags=["Negotiation"])
 api_router.include_router(order_router, prefix="/order", tags=["Order"])
 api_router.include_router(products_router, prefix="/products", tags=["Products"])
+api_router.include_router(seller_router, prefix="/seller", tags=["Seller Workspace"])
 
 __all__ = ["api_router"]

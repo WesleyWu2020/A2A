@@ -3,6 +3,7 @@
 from fastapi.testclient import TestClient
 
 from app.api import plaza as plaza_api
+from app.services.seller_service import SellerService
 from main import app
 
 
@@ -71,3 +72,36 @@ def test_plaza_home_route_supports_style_preference(monkeypatch):
         section for section in payload["data"]["sections"] if section["id"] == "personalized"
     )
     assert "Modern" in personalized_section["title"]
+
+
+def test_seller_bulk_parse_route_returns_parsed_products(monkeypatch):
+    def fake_parse(self, raw_text):
+        assert "Sofa" in raw_text
+        return {
+            "parsed_products": [
+                {
+                    "title": "Test Sofa",
+                    "category": "Living Room",
+                    "list_price": 1000,
+                    "floor_price": 800,
+                    "currency": "USD",
+                    "inventory": 9,
+                    "highlights": ["washable"],
+                    "description": None,
+                    "image_urls": [],
+                }
+            ],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(SellerService, "parse_bulk_products", fake_parse)
+
+    response = client.post(
+        "/api/seller/demo_seller_001/products/bulk-parse",
+        json={"raw_text": "Test Sofa | Living Room | 1000 | 800 | 9 | washable"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["code"] == 200
+    assert payload["data"]["parsed_products"][0]["title"] == "Test Sofa"

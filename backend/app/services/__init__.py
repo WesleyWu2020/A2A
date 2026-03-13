@@ -5,10 +5,12 @@ from .product_service import ProductService
 from .scheme_service import SchemeService
 from .negotiation_service import NegotiationService
 from .order_service import OrderService
+from .seller_service import SellerService
 
 __all__ = [
     "ProductService",
     "SchemeService", 
     "NegotiationService",
     "OrderService",
+    "SellerService",
 ]
