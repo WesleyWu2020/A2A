@@ -1,9 +1,25 @@
 'use client';
 
 import { type ComponentType, useEffect, useMemo, useState } from 'react';
-import { Bot, CheckCircle2, FlaskConical, LineChart, Loader2, PackagePlus, ShieldAlert, Upload } from 'lucide-react';
+import {
+  Activity,
+  AlertTriangle,
+  Bot,
+  CheckCircle2,
+  FlaskConical,
+  LayoutDashboard,
+  LineChart,
+  Loader2,
+  PackagePlus,
+  Radar,
+  ShieldAlert,
+  SlidersHorizontal,
+  Store,
+  Upload,
+} from 'lucide-react';
 import { Header } from '@/components/Header';
 import { apiClient } from '@/lib/api';
+import { DEMO_USER_ID } from '@/store';
 import type {
   SellerAgentStrategy,
   SellerProductPayload,
@@ -83,6 +99,21 @@ const GUARDRAIL_PRESETS: Array<{ key: string; label: string; text: string }> = [
   { key: 'no_fake_inventory', label: 'No fake inventory claims', text: 'Do not claim inventory you cannot guarantee' },
 ];
 
+type WorkspaceModule = 'overview' | 'products' | 'strategy' | 'sandbox' | 'monitor';
+
+const WORKSPACE_MODULES: Array<{
+  key: WorkspaceModule;
+  label: string;
+  description: string;
+  icon: ComponentType<{ className?: string }>;
+}> = [
+  { key: 'overview', label: 'Overview', description: 'Performance dashboard and alerts', icon: LayoutDashboard },
+  { key: 'products', label: 'Products & Knowledge', description: 'Catalog import and product management', icon: Store },
+  { key: 'strategy', label: 'AI Strategy', description: 'Persona, guardrails, and pricing policy', icon: SlidersHorizontal },
+  { key: 'sandbox', label: 'Sandbox Lab', description: 'Simulate buyer conversations safely', icon: FlaskConical },
+  { key: 'monitor', label: 'Live Monitor', description: 'High-priority conversation watchlist', icon: Radar },
+];
+
 export default function SellerWorkspacePage() {
   const [workbench, setWorkbench] = useState<SellerWorkbenchData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,6 +141,10 @@ export default function SellerWorkspacePage() {
   const [guardrailInput, setGuardrailInput] = useState('');
   const [extraGuardrails, setExtraGuardrails] = useState<string[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [activeModule, setActiveModule] = useState<WorkspaceModule>('overview');
+  const [monitorLoading, setMonitorLoading] = useState(false);
+  const [monitorError, setMonitorError] = useState('');
+  const [monitorConversations, setMonitorConversations] = useState<Array<{ id: string; title: string; updatedAt: string; minutesAgo: number; priority: 'high' | 'medium' | 'low'; note: string }>>([]);
 
   const loadWorkbench = async () => {
     setLoading(true);
@@ -128,8 +163,47 @@ export default function SellerWorkspacePage() {
     }
   };
 
+  const loadMonitorConversations = async () => {
+    setMonitorLoading(true);
+    setMonitorError('');
+    try {
+      const response = await apiClient.listConversations(DEMO_USER_ID, 12);
+      const now = Date.now();
+      const ranked = (response.data.conversations || [])
+        .map((item) => {
+          const updatedTs = new Date(item.updated_at).getTime();
+          const minutesAgo = Number.isFinite(updatedTs) ? Math.max(0, Math.round((now - updatedTs) / 60000)) : 9999;
+          const priority: 'high' | 'medium' | 'low' = minutesAgo <= 15 ? 'high' : minutesAgo <= 120 ? 'medium' : 'low';
+          const note =
+            priority === 'high'
+              ? 'Active recently; suitable for quick manual takeover.'
+              : priority === 'medium'
+                ? 'Warm conversation; check if buyer needs nudging.'
+                : 'Cold thread; low urgency unless high-ticket intent appears.';
+
+          return {
+            id: item.conversation_id,
+            title: item.title || 'Untitled conversation',
+            updatedAt: item.updated_at,
+            minutesAgo,
+            priority,
+            note,
+          };
+        })
+        .sort((a, b) => a.minutesAgo - b.minutesAgo);
+
+      setMonitorConversations(ranked.slice(0, 8));
+    } catch {
+      setMonitorError('Unable to load live conversations at the moment.');
+      setMonitorConversations([]);
+    } finally {
+      setMonitorLoading(false);
+    }
+  };
+
   useEffect(() => {
     void loadWorkbench();
+    void loadMonitorConversations();
   }, []);
 
   useEffect(() => {
@@ -173,6 +247,80 @@ export default function SellerWorkspacePage() {
       productForm.floor_price <= productForm.list_price
     );
   }, [productForm]);
+
+  const totalGuardrails = useMemo(() => {
+    const presetCount = Object.values(guardrailFlags).filter(Boolean).length;
+    return presetCount + extraGuardrails.filter((item) => item.trim().length > 0).length;
+  }, [extraGuardrails, guardrailFlags]);
+
+  const strategyWarnings = useMemo(() => {
+    if (!strategy || !workbench) return [];
+
+    const warnings: string[] = [];
+    if (strategy.max_auto_discount_ratio > 0.35) {
+      warnings.push('Auto discount is above 35%; margin volatility risk increases.');
+    }
+    if (strategy.max_auto_discount_ratio < 0.05) {
+      warnings.push('Auto discount is very low; conversion may drop for price-sensitive buyers.');
+    }
+    if (!strategy.custom_prompt.trim()) {
+      warnings.push('Custom prompt is empty. Add product-specific instructions for better consistency.');
+    }
+    if (totalGuardrails === 0) {
+      warnings.push('No guardrails enabled. Consider setting at least one red line before going live.');
+    }
+    const invalidProduct = workbench.products.find((item) => item.floor_price > item.list_price);
+    if (invalidProduct) {
+      warnings.push(`Product "${invalidProduct.title}" has floor price higher than list price.`);
+    }
+
+    return warnings;
+  }, [strategy, totalGuardrails, workbench]);
+
+  const onboardingChecklist = useMemo(() => {
+    const hasProducts = (workbench?.products.length || 0) > 0;
+    const hasPrompt = Boolean(strategy?.opening_style.trim());
+    const hasGuardrail = totalGuardrails > 0;
+    const hasSandbox = Boolean(sandboxResult) || (workbench?.insights.sandbox_runs || 0) > 0;
+
+    return [
+      { label: 'Add your first hero product', done: hasProducts },
+      { label: 'Set the agent opening style', done: hasPrompt },
+      { label: 'Enable at least one red-line guardrail', done: hasGuardrail },
+      { label: 'Run one sandbox negotiation', done: hasSandbox },
+    ];
+  }, [sandboxResult, strategy, totalGuardrails, workbench]);
+
+  const agentStatus = useMemo(() => {
+    if (saving) {
+      return {
+        label: 'Updating strategy',
+        tone: 'text-amber-700 bg-amber-50 border-amber-200',
+      };
+    }
+    if (workbench?.insights.strategy_health.toLowerCase().includes('risk')) {
+      return {
+        label: 'Attention needed',
+        tone: 'text-rose-700 bg-rose-50 border-rose-200',
+      };
+    }
+    return {
+      label: 'Ready for buyers',
+      tone: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+    };
+  }, [saving, workbench]);
+
+  const miniPreviewReply = useMemo(() => {
+    if (!strategy) return '';
+    const opening = strategy.opening_style || 'Understand buyer needs first';
+    const upsellHint = upsellRules[0] || 'Recommend matching accessory bundle when intent is high';
+    return `${strategy.persona_name}: ${opening}. Offer follows ${strategy.negotiation_style} playbook. ${upsellHint}.`;
+  }, [strategy, upsellRules]);
+
+  const highPriorityConversations = useMemo(
+    () => monitorConversations.filter((item) => item.priority === 'high').length,
+    [monitorConversations],
+  );
 
   const submitProduct = async () => {
     if (!canCreateProduct) return;
@@ -368,7 +516,13 @@ export default function SellerWorkspacePage() {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold text-slate-900">Seller Workspace</h1>
-              <p className="mt-1 text-sm text-slate-600">Upload products, configure your seller agent strategy, and test conversations before going live.</p>
+              <p className="mt-1 text-sm text-slate-600">Train and operate your AI seller with modular controls: insights, product knowledge, strategy, sandbox, and monitoring.</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${agentStatus.tone}`}>
+                <Activity className="h-3.5 w-3.5" />
+                {agentStatus.label}
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Stat label="Products" value={workbench.insights.total_products} icon={PackagePlus} />
@@ -379,264 +533,439 @@ export default function SellerWorkspacePage() {
           </div>
         </section>
 
-        <section className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <h2 className="text-lg font-semibold text-slate-900">Smart Product Upload</h2>
-            <p className="mt-1 text-sm text-slate-500">Friendly form for single product creation.</p>
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Product title" value={productForm.title} onChange={(e) => setProductForm((p) => ({ ...p, title: e.target.value }))} />
-              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Category" value={productForm.category} onChange={(e) => setProductForm((p) => ({ ...p, category: e.target.value }))} />
-              <input type="number" min={0} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="List price" value={productForm.list_price || ''} onChange={(e) => setProductForm((p) => ({ ...p, list_price: Number(e.target.value) || 0 }))} />
-              <input type="number" min={0} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Floor price" value={productForm.floor_price || ''} onChange={(e) => setProductForm((p) => ({ ...p, floor_price: Number(e.target.value) || 0 }))} />
-              <input type="number" min={0} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Inventory" value={productForm.inventory || ''} onChange={(e) => setProductForm((p) => ({ ...p, inventory: Number(e.target.value) || 0 }))} />
-              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Currency (USD)" value={productForm.currency} onChange={(e) => setProductForm((p) => ({ ...p, currency: e.target.value.toUpperCase() }))} />
-            </div>
-            <input className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Highlights, comma-separated" value={productForm.highlights.join(', ')} onChange={(e) => setProductForm((p) => ({ ...p, highlights: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) }))} />
-            <textarea className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={3} placeholder="Description" value={productForm.description || ''} onChange={(e) => setProductForm((p) => ({ ...p, description: e.target.value }))} />
-            <button
-              onClick={() => void submitProduct()}
-              disabled={!canCreateProduct || saving}
-              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              <Upload className="h-4 w-4" />
-              Add Product
-            </button>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <h2 className="text-lg font-semibold text-slate-900">Bulk Upload Assistant</h2>
-            <p className="mt-1 text-sm text-slate-500">Paste one product per line: <code>title | category | list_price | floor_price | inventory | highlights</code></p>
-            <textarea
-              className="mt-3 h-36 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              value={bulkInput}
-              onChange={(e) => setBulkInput(e.target.value)}
-              placeholder="Premium Sofa | Living Room | 1299 | 999 | 12 | washable fabric, anti-scratch"
-            />
-            <div className="mt-3 flex gap-2">
-              <button onClick={() => void previewBulkParse()} disabled={!bulkInput.trim() || saving} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-50">Preview Parse</button>
-              <button onClick={() => void importParsedProducts()} disabled={bulkParsed.length === 0 || saving} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">Import Parsed Products</button>
-            </div>
-            {bulkWarnings.length > 0 && (
-              <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
-                {bulkWarnings.map((warning) => (
-                  <p key={warning}>{warning}</p>
-                ))}
-              </div>
-            )}
-            {bulkParsed.length > 0 && (
-              <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-700">
-                Parsed {bulkParsed.length} products successfully.
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900"><Bot className="h-5 w-5 text-indigo-600" />Agent Strategy Center</h2>
-            <p className="mt-1 text-sm text-slate-500">Choose a sales persona, configure upsell playbooks, and set red-line guardrails without writing prompts.</p>
-
-            <div className="mt-4 space-y-3">
-              <div>
-                <p className="text-xs font-medium text-slate-600">1) Sales persona template</p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                  {PERSONA_PRESETS.map((preset) => (
-                    <button
-                      key={preset.id}
-                      onClick={() => applyPersonaPreset(preset.id)}
-                      className={`rounded-xl border px-3 py-2 text-left text-xs ${selectedPresetId === preset.id ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-700'}`}
-                    >
-                      <p className="font-semibold">{preset.label}</p>
-                      <p className="mt-1 text-[11px] text-slate-500">{preset.summary}</p>
-                    </button>
-                  ))}
+        <section className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
+          <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Workspace Modules</p>
+            <div className="mt-3 space-y-2">
+              {WORKSPACE_MODULES.map((item) => {
+                const Icon = item.icon;
+                return (
                   <button
-                    onClick={() => applyPersonaPreset('custom')}
-                    className={`rounded-xl border px-3 py-2 text-left text-xs ${selectedPresetId === 'custom' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-700'}`}
+                    key={item.key}
+                    onClick={() => setActiveModule(item.key)}
+                    className={`w-full rounded-xl border px-3 py-3 text-left transition ${
+                      activeModule === item.key
+                        ? 'border-indigo-300 bg-indigo-50 text-indigo-800'
+                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                    }`}
                   >
-                    <p className="font-semibold">Custom</p>
-                    <p className="mt-1 text-[11px] text-slate-500">Manually tune in Advanced Settings.</p>
+                    <div className="flex items-center gap-2 text-sm font-semibold">
+                      <Icon className="h-4 w-4" />
+                      {item.label}
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">{item.description}</p>
                   </button>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-                <p><span className="font-semibold">Persona:</span> {strategy.persona_name}</p>
-                <p className="mt-1"><span className="font-semibold">Tone:</span> {strategy.tone}</p>
-                <p className="mt-1"><span className="font-semibold">Opening:</span> {strategy.opening_style}</p>
-              </div>
-
-              <div>
-                <p className="text-xs font-medium text-slate-600">2) Upsell playbook builder</p>
-                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={upsellWhen} onChange={(e) => setUpsellWhen(e.target.value)}>
-                    {upsellCategoryOptions.map((option) => (
-                      <option key={option} value={option}>{option}</option>
-                    ))}
-                  </select>
-                  <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={upsellRecommend} onChange={(e) => setUpsellRecommend(e.target.value)} placeholder="Recommend what" />
-                  <button onClick={addUpsellRule} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700">Add Rule</button>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {upsellRules.length === 0 && <p className="text-xs text-slate-500">No upsell rules yet.</p>}
-                  {upsellRules.map((rule, idx) => (
-                    <span key={`${rule}-${idx}`} className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-xs text-indigo-700">
-                      {rule}
-                      <button onClick={() => setUpsellRules((prev) => prev.filter((_, i) => i !== idx))} className="text-indigo-500">x</button>
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs font-medium text-slate-600">3) Guardrails (red lines)</p>
-                <div className="mt-2 space-y-2 rounded-xl border border-slate-200 p-3">
-                  {GUARDRAIL_PRESETS.map((preset) => (
-                    <label key={preset.key} className="flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(guardrailFlags[preset.key])}
-                        onChange={(e) => setGuardrailFlags((prev) => ({ ...prev, [preset.key]: e.target.checked }))}
-                      />
-                      {preset.label}
-                    </label>
-                  ))}
-
-                  <div className="flex gap-2">
-                    <input
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                      value={guardrailInput}
-                      onChange={(e) => setGuardrailInput(e.target.value)}
-                      placeholder="Add custom red line"
-                    />
-                    <button onClick={addGuardrail} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700">Add</button>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {extraGuardrails.map((rule, idx) => (
-                      <span key={`${rule}-${idx}`} className="inline-flex items-center gap-2 rounded-full bg-rose-50 px-3 py-1 text-xs text-rose-700">
-                        {rule}
-                        <button onClick={() => setExtraGuardrails((prev) => prev.filter((_, i) => i !== idx))} className="text-rose-500">x</button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-slate-200 bg-white p-3">
-                <button onClick={() => setShowAdvanced((prev) => !prev)} className="text-xs font-medium text-slate-700">
-                  {showAdvanced ? 'Hide Advanced Settings' : 'Show Advanced Settings'}
-                </button>
-                {showAdvanced && (
-                  <div className="mt-3 space-y-3">
-                    <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={strategy.persona_name} onChange={(e) => setStrategy((s) => (s ? { ...s, persona_name: e.target.value } : s))} placeholder="Persona name" />
-                    <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={strategy.tone} onChange={(e) => setStrategy((s) => (s ? { ...s, tone: e.target.value } : s))} placeholder="Tone" />
-                    <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={strategy.opening_style} onChange={(e) => setStrategy((s) => (s ? { ...s, opening_style: e.target.value } : s))} placeholder="Opening style" />
-                    <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={3} value={strategy.custom_prompt} onChange={(e) => setStrategy((s) => (s ? { ...s, custom_prompt: e.target.value } : s))} placeholder="Custom prompt" />
-                  </div>
-                )}
-              </div>
-
-              <select className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={strategy.negotiation_style} onChange={(e) => setStrategy((s) => (s ? { ...s, negotiation_style: e.target.value as SellerAgentStrategy['negotiation_style'] } : s))}>
-                {STRATEGY_OPTIONS.map((opt) => (
-                  <option value={opt.value} key={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-              <p className="text-xs text-slate-500">{STRATEGY_OPTIONS.find((opt) => opt.value === strategy.negotiation_style)?.helper}</p>
-
-              <label className="text-xs font-medium text-slate-600">Max auto discount ratio: {Math.round(strategy.max_auto_discount_ratio * 100)}%</label>
-              <input type="range" min={0} max={0.4} step={0.01} value={strategy.max_auto_discount_ratio} onChange={(e) => setStrategy((s) => (s ? { ...s, max_auto_discount_ratio: Number(e.target.value) } : s))} className="w-full" />
+                );
+              })}
             </div>
-            <button onClick={() => void saveStrategy()} disabled={saving} className="mt-4 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Save Strategy</button>
-          </div>
+          </aside>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900"><FlaskConical className="h-5 w-5 text-emerald-600" />Seller Sandbox</h2>
-            <p className="mt-1 text-sm text-slate-500">Test buyer conversations before publishing your strategy.</p>
-
-            <div className="mt-4 space-y-3">
-              <select value={sandboxProductId} onChange={(e) => setSandboxProductId(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
-                {workbench.products.map((product) => (
-                  <option key={product.product_id} value={product.product_id}>{product.title}</option>
-                ))}
-              </select>
-              <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={3} value={sandboxMessage} onChange={(e) => setSandboxMessage(e.target.value)} placeholder="Buyer message" />
-              <div className="grid grid-cols-2 gap-3">
-                <input type="number" min={0} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Buyer offer (optional)" value={sandboxOffer ?? ''} onChange={(e) => setSandboxOffer(e.target.value ? Number(e.target.value) : undefined)} />
-                <input type="number" min={1} max={6} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={sandboxRound} onChange={(e) => setSandboxRound(Math.max(1, Math.min(6, Number(e.target.value) || 1)))} />
-              </div>
-              <select value={sandboxPersona} onChange={(e) => setSandboxPersona(e.target.value as 'auto' | 'bargain_hunter' | 'premium_decider' | 'hesitant_planner')} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
-                {PERSONA_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-              <p className="text-xs text-slate-500">{PERSONA_OPTIONS.find((opt) => opt.value === sandboxPersona)?.helper}</p>
-              <button onClick={() => void runSandbox()} disabled={!sandboxProductId || saving} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Run Simulation</button>
-            </div>
-
-            {sandboxResult && (
-              <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm">
-                <p className="font-semibold text-slate-900">Agent Reply</p>
-                <p className="mt-1 text-slate-700">{sandboxResult.seller_reply}</p>
-                <p className="mt-2 text-xs text-slate-600">
-                  Counter Price: {sandboxResult.counter_price ?? 'N/A'} | Discount: {Math.round(sandboxResult.discount_ratio * 100)}% | Persona: {sandboxResult.buyer_persona}
-                </p>
-                <p className="mt-1 text-xs text-slate-700">
-                  Win Probability: {Math.round(sandboxResult.win_probability * 100)}% | Predicted Cart: {sandboxResult.predicted_cart_value.toFixed(2)} | Guardrail Buffer: {sandboxResult.guardrail_buffer.toFixed(2)}
-                </p>
-                <div className="mt-3 rounded-lg border border-emerald-300 bg-white/70 p-3">
-                  <p className="text-xs font-semibold text-emerald-800">Coach Insight</p>
-                  <p className="mt-1 text-xs text-emerald-700">{sandboxResult.coaching_tip}</p>
-                  <p className="mt-1 text-xs text-emerald-700">Optimization: {sandboxResult.optimization_tip}</p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <button
-                      onClick={() => void applyQuickAction()}
-                      disabled={saving || actionApplied}
-                      className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
-                    >
-                      {actionApplied ? 'Applied' : sandboxResult.quick_action_label}
-                    </button>
-                    <span className="text-[11px] text-emerald-700">Action Code: {sandboxResult.quick_action_code}</span>
+          <div className="space-y-6">
+            {activeModule === 'overview' && (
+              <>
+                <section className="rounded-2xl border border-slate-200 bg-white p-5">
+                  <h2 className="text-lg font-semibold text-slate-900">Overview Dashboard</h2>
+                  <p className="mt-1 text-sm text-slate-500">Daily performance, strategy health, and launch readiness.</p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <Stat label="Products" value={workbench.insights.total_products} icon={PackagePlus} />
+                    <Stat label="Acceptance" value={`${Math.round(workbench.insights.acceptance_rate * 100)}%`} icon={LineChart} />
+                    <Stat label="Avg Margin" value={`${Math.round(workbench.insights.avg_margin_ratio * 100)}%`} icon={CheckCircle2} />
+                    <Stat label="Sandbox Runs" value={workbench.insights.sandbox_runs} icon={FlaskConical} />
                   </div>
-                </div>
-                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
-                  <p className="text-xs font-semibold text-slate-800">Alternative Strategy ({sandboxResult.alternative_strategy})</p>
-                  <p className="mt-1 text-xs text-slate-700">{sandboxResult.alternative_reply}</p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    Alt Win Probability: {Math.round(sandboxResult.alternative_win_probability * 100)}% | Risk Note: {sandboxResult.alternative_risk_note}
-                  </p>
-                </div>
-              </div>
+
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm font-semibold text-slate-900">Launch Checklist</p>
+                      <div className="mt-2 space-y-2">
+                        {onboardingChecklist.map((item) => (
+                          <p key={item.label} className="text-sm text-slate-700">
+                            {item.done ? 'OK' : 'TODO'} - {item.label}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                      <p className="text-sm font-semibold text-amber-900">Alert & Opportunity</p>
+                      <p className="mt-2 text-sm text-amber-800">
+                        Strategy health: {workbench.insights.strategy_health}. Top rejection reason: {workbench.insights.top_rejection_reason || 'Not enough history yet'}.
+                      </p>
+                      <p className="mt-2 text-xs text-amber-700">
+                        Recommendation: prioritize sandbox simulations for products with low acceptance to tune opening style and guardrails.
+                      </p>
+                    </div>
+                  </div>
+                </section>
+              </>
             )}
-          </div>
-        </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5">
-          <h2 className="text-lg font-semibold text-slate-900">Live Product List</h2>
-          <div className="mt-3 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-500">
-                  <th className="px-3 py-2 font-medium">Title</th>
-                  <th className="px-3 py-2 font-medium">Category</th>
-                  <th className="px-3 py-2 font-medium">List Price</th>
-                  <th className="px-3 py-2 font-medium">Floor Price</th>
-                  <th className="px-3 py-2 font-medium">Inventory</th>
-                </tr>
-              </thead>
-              <tbody>
-                {workbench.products.map((product) => (
-                  <tr key={product.product_id} className="border-b border-slate-100">
-                    <td className="px-3 py-2 text-slate-800">{product.title}</td>
-                    <td className="px-3 py-2 text-slate-600">{product.category}</td>
-                    <td className="px-3 py-2 text-slate-600">{product.currency} {product.list_price.toFixed(2)}</td>
-                    <td className="px-3 py-2 text-slate-600">{product.currency} {product.floor_price.toFixed(2)}</td>
-                    <td className="px-3 py-2 text-slate-600">{product.inventory}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {activeModule === 'products' && (
+              <>
+                <section className="grid gap-6 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                    <h2 className="text-lg font-semibold text-slate-900">Smart Product Upload</h2>
+                    <p className="mt-1 text-sm text-slate-500">Single product form with validation guardrails for pricing and inventory.</p>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Product title" value={productForm.title} onChange={(e) => setProductForm((p) => ({ ...p, title: e.target.value }))} />
+                      <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Category" value={productForm.category} onChange={(e) => setProductForm((p) => ({ ...p, category: e.target.value }))} />
+                      <input type="number" min={0} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="List price" value={productForm.list_price || ''} onChange={(e) => setProductForm((p) => ({ ...p, list_price: Number(e.target.value) || 0 }))} />
+                      <input type="number" min={0} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Floor price" value={productForm.floor_price || ''} onChange={(e) => setProductForm((p) => ({ ...p, floor_price: Number(e.target.value) || 0 }))} />
+                      <input type="number" min={0} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Inventory" value={productForm.inventory || ''} onChange={(e) => setProductForm((p) => ({ ...p, inventory: Number(e.target.value) || 0 }))} />
+                      <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Currency (USD)" value={productForm.currency} onChange={(e) => setProductForm((p) => ({ ...p, currency: e.target.value.toUpperCase() }))} />
+                    </div>
+                    <input className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Highlights, comma-separated" value={productForm.highlights.join(', ')} onChange={(e) => setProductForm((p) => ({ ...p, highlights: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) }))} />
+                    <textarea className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={3} placeholder="Description" value={productForm.description || ''} onChange={(e) => setProductForm((p) => ({ ...p, description: e.target.value }))} />
+                    {!canCreateProduct && (
+                      <p className="mt-2 text-xs text-rose-600">Please ensure title/category are filled, prices are valid, and floor price is not above list price.</p>
+                    )}
+                    <button
+                      onClick={() => void submitProduct()}
+                      disabled={!canCreateProduct || saving}
+                      className="mt-4 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      <Upload className="h-4 w-4" />
+                      Add Product
+                    </button>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                    <h2 className="text-lg font-semibold text-slate-900">Bulk Upload Assistant</h2>
+                    <p className="mt-1 text-sm text-slate-500">Paste one product per line: <code>title | category | list_price | floor_price | inventory | highlights</code></p>
+                    <textarea
+                      className="mt-3 h-36 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      value={bulkInput}
+                      onChange={(e) => setBulkInput(e.target.value)}
+                      placeholder="Premium Sofa | Living Room | 1299 | 999 | 12 | washable fabric, anti-scratch"
+                    />
+                    <div className="mt-3 flex gap-2">
+                      <button onClick={() => void previewBulkParse()} disabled={!bulkInput.trim() || saving} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-50">Preview Parse</button>
+                      <button onClick={() => void importParsedProducts()} disabled={bulkParsed.length === 0 || saving} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">Import Parsed Products</button>
+                    </div>
+                    {bulkWarnings.length > 0 && (
+                      <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
+                        {bulkWarnings.map((warning) => (
+                          <p key={warning}>{warning}</p>
+                        ))}
+                      </div>
+                    )}
+                    {bulkParsed.length > 0 && (
+                      <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-700">
+                        Parsed {bulkParsed.length} products successfully.
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                <section className="rounded-2xl border border-slate-200 bg-white p-5">
+                  <h2 className="text-lg font-semibold text-slate-900">Live Product List</h2>
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="min-w-full text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 text-slate-500">
+                          <th className="px-3 py-2 font-medium">Title</th>
+                          <th className="px-3 py-2 font-medium">Category</th>
+                          <th className="px-3 py-2 font-medium">List Price</th>
+                          <th className="px-3 py-2 font-medium">Floor Price</th>
+                          <th className="px-3 py-2 font-medium">Inventory</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {workbench.products.map((product) => (
+                          <tr key={product.product_id} className="border-b border-slate-100">
+                            <td className="px-3 py-2 text-slate-800">{product.title}</td>
+                            <td className="px-3 py-2 text-slate-600">{product.category}</td>
+                            <td className="px-3 py-2 text-slate-600">{product.currency} {product.list_price.toFixed(2)}</td>
+                            <td className="px-3 py-2 text-slate-600">{product.currency} {product.floor_price.toFixed(2)}</td>
+                            <td className="px-3 py-2 text-slate-600">{product.inventory}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              </>
+            )}
+
+            {activeModule === 'strategy' && (
+              <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                  <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900"><Bot className="h-5 w-5 text-indigo-600" />Agent Strategy Center</h2>
+                  <p className="mt-1 text-sm text-slate-500">Choose a sales persona, configure upsell playbooks, and set red-line guardrails without writing prompts.</p>
+
+                  <div className="mt-4 space-y-3">
+                    <div>
+                      <p className="text-xs font-medium text-slate-600">1) Sales persona template</p>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                        {PERSONA_PRESETS.map((preset) => (
+                          <button
+                            key={preset.id}
+                            onClick={() => applyPersonaPreset(preset.id)}
+                            className={`rounded-xl border px-3 py-2 text-left text-xs ${selectedPresetId === preset.id ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-700'}`}
+                          >
+                            <p className="font-semibold">{preset.label}</p>
+                            <p className="mt-1 text-[11px] text-slate-500">{preset.summary}</p>
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => applyPersonaPreset('custom')}
+                          className={`rounded-xl border px-3 py-2 text-left text-xs ${selectedPresetId === 'custom' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-700'}`}
+                        >
+                          <p className="font-semibold">Custom</p>
+                          <p className="mt-1 text-[11px] text-slate-500">Manually tune in Advanced Settings.</p>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                      <p><span className="font-semibold">Persona:</span> {strategy.persona_name}</p>
+                      <p className="mt-1"><span className="font-semibold">Tone:</span> {strategy.tone}</p>
+                      <p className="mt-1"><span className="font-semibold">Opening:</span> {strategy.opening_style}</p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-medium text-slate-600">2) Upsell playbook builder</p>
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={upsellWhen} onChange={(e) => setUpsellWhen(e.target.value)}>
+                          {upsellCategoryOptions.map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </select>
+                        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={upsellRecommend} onChange={(e) => setUpsellRecommend(e.target.value)} placeholder="Recommend what" />
+                        <button onClick={addUpsellRule} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700">Add Rule</button>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {upsellRules.length === 0 && <p className="text-xs text-slate-500">No upsell rules yet.</p>}
+                        {upsellRules.map((rule, idx) => (
+                          <span key={`${rule}-${idx}`} className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-xs text-indigo-700">
+                            {rule}
+                            <button onClick={() => setUpsellRules((prev) => prev.filter((_, i) => i !== idx))} className="text-indigo-500">x</button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-medium text-slate-600">3) Guardrails (red lines)</p>
+                      <div className="mt-2 space-y-2 rounded-xl border border-slate-200 p-3">
+                        {GUARDRAIL_PRESETS.map((preset) => (
+                          <label key={preset.key} className="flex items-center gap-2 text-sm text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(guardrailFlags[preset.key])}
+                              onChange={(e) => setGuardrailFlags((prev) => ({ ...prev, [preset.key]: e.target.checked }))}
+                            />
+                            {preset.label}
+                          </label>
+                        ))}
+
+                        <div className="flex gap-2">
+                          <input
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                            value={guardrailInput}
+                            onChange={(e) => setGuardrailInput(e.target.value)}
+                            placeholder="Add custom red line"
+                          />
+                          <button onClick={addGuardrail} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700">Add</button>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {extraGuardrails.map((rule, idx) => (
+                            <span key={`${rule}-${idx}`} className="inline-flex items-center gap-2 rounded-full bg-rose-50 px-3 py-1 text-xs text-rose-700">
+                              {rule}
+                              <button onClick={() => setExtraGuardrails((prev) => prev.filter((_, i) => i !== idx))} className="text-rose-500">x</button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-3">
+                      <button onClick={() => setShowAdvanced((prev) => !prev)} className="text-xs font-medium text-slate-700">
+                        {showAdvanced ? 'Hide Advanced Settings' : 'Show Advanced Settings'}
+                      </button>
+                      {showAdvanced && (
+                        <div className="mt-3 space-y-3">
+                          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={strategy.persona_name} onChange={(e) => setStrategy((s) => (s ? { ...s, persona_name: e.target.value } : s))} placeholder="Persona name" />
+                          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={strategy.tone} onChange={(e) => setStrategy((s) => (s ? { ...s, tone: e.target.value } : s))} placeholder="Tone" />
+                          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={strategy.opening_style} onChange={(e) => setStrategy((s) => (s ? { ...s, opening_style: e.target.value } : s))} placeholder="Opening style" />
+                          <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={3} value={strategy.custom_prompt} onChange={(e) => setStrategy((s) => (s ? { ...s, custom_prompt: e.target.value } : s))} placeholder="Custom prompt" />
+                        </div>
+                      )}
+                    </div>
+
+                    <select className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={strategy.negotiation_style} onChange={(e) => setStrategy((s) => (s ? { ...s, negotiation_style: e.target.value as SellerAgentStrategy['negotiation_style'] } : s))}>
+                      {STRATEGY_OPTIONS.map((opt) => (
+                        <option value={opt.value} key={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-500">{STRATEGY_OPTIONS.find((opt) => opt.value === strategy.negotiation_style)?.helper}</p>
+
+                    <label className="text-xs font-medium text-slate-600">Max auto discount ratio: {Math.round(strategy.max_auto_discount_ratio * 100)}%</label>
+                    <input type="range" min={0} max={0.4} step={0.01} value={strategy.max_auto_discount_ratio} onChange={(e) => setStrategy((s) => (s ? { ...s, max_auto_discount_ratio: Number(e.target.value) } : s))} className="w-full" />
+                  </div>
+                  <button onClick={() => void saveStrategy()} disabled={saving} className="mt-4 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Save Strategy</button>
+                </div>
+
+                <aside className="space-y-4 rounded-2xl border border-indigo-100 bg-indigo-50/50 p-5">
+                  <h3 className="text-sm font-semibold text-indigo-900">Mini Sandbox Preview</h3>
+                  <p className="text-xs text-indigo-800">Configuration-as-you-edit preview. This is generated from your current strategy draft.</p>
+
+                  <div className="rounded-xl border border-indigo-200 bg-white p-3 text-sm text-slate-700">
+                    <p className="text-xs font-semibold text-indigo-700">Draft Agent Reply Style</p>
+                    <p className="mt-2 text-sm">{miniPreviewReply}</p>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <p className="text-xs font-semibold text-slate-800">Current Safety Setup</p>
+                    <p className="mt-1 text-xs text-slate-600">Guardrails enabled: {totalGuardrails}</p>
+                    <p className="mt-1 text-xs text-slate-600">Negotiation style: {strategy.negotiation_style}</p>
+                    <p className="mt-1 text-xs text-slate-600">Auto discount cap: {Math.round(strategy.max_auto_discount_ratio * 100)}%</p>
+                  </div>
+
+                  {strategyWarnings.length > 0 && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                      <p className="flex items-center gap-2 text-xs font-semibold text-amber-900"><AlertTriangle className="h-3.5 w-3.5" />Configuration Warnings</p>
+                      <div className="mt-2 space-y-1 text-xs text-amber-800">
+                        {strategyWarnings.map((warning) => (
+                          <p key={warning}>- {warning}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </aside>
+              </section>
+            )}
+
+            {activeModule === 'sandbox' && (
+              <section className="rounded-2xl border border-slate-200 bg-white p-5">
+                <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900"><FlaskConical className="h-5 w-5 text-emerald-600" />Seller Sandbox</h2>
+                <p className="mt-1 text-sm text-slate-500">Test buyer conversations before publishing your strategy. The result card reveals AI reasoning and optimization suggestions.</p>
+
+                <div className="mt-4 grid gap-6 lg:grid-cols-2">
+                  <div className="space-y-3">
+                    <select value={sandboxProductId} onChange={(e) => setSandboxProductId(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                      {workbench.products.map((product) => (
+                        <option key={product.product_id} value={product.product_id}>{product.title}</option>
+                      ))}
+                    </select>
+                    <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={4} value={sandboxMessage} onChange={(e) => setSandboxMessage(e.target.value)} placeholder="Buyer message" />
+                    <div className="grid grid-cols-2 gap-3">
+                      <input type="number" min={0} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Buyer offer (optional)" value={sandboxOffer ?? ''} onChange={(e) => setSandboxOffer(e.target.value ? Number(e.target.value) : undefined)} />
+                      <input type="number" min={1} max={6} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={sandboxRound} onChange={(e) => setSandboxRound(Math.max(1, Math.min(6, Number(e.target.value) || 1)))} />
+                    </div>
+                    <select value={sandboxPersona} onChange={(e) => setSandboxPersona(e.target.value as 'auto' | 'bargain_hunter' | 'premium_decider' | 'hesitant_planner')} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                      {PERSONA_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-500">{PERSONA_OPTIONS.find((opt) => opt.value === sandboxPersona)?.helper}</p>
+                    <button onClick={() => void runSandbox()} disabled={!sandboxProductId || saving} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Run Simulation</button>
+                  </div>
+
+                  <div>
+                    {!sandboxResult && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                        Run one simulation to see reply quality, risk score, and optimization hints.
+                      </div>
+                    )}
+
+                    {sandboxResult && (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm">
+                        <p className="font-semibold text-slate-900">Agent Reply</p>
+                        <p className="mt-1 text-slate-700">{sandboxResult.seller_reply}</p>
+                        <p className="mt-2 text-xs text-slate-600">
+                          Counter Price: {sandboxResult.counter_price ?? 'N/A'} | Discount: {Math.round(sandboxResult.discount_ratio * 100)}% | Persona: {sandboxResult.buyer_persona}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-700">
+                          Win Probability: {Math.round(sandboxResult.win_probability * 100)}% | Predicted Cart: {sandboxResult.predicted_cart_value.toFixed(2)} | Guardrail Buffer: {sandboxResult.guardrail_buffer.toFixed(2)}
+                        </p>
+                        <div className="mt-3 rounded-lg border border-emerald-300 bg-white/70 p-3">
+                          <p className="text-xs font-semibold text-emerald-800">Transparent Reasoning</p>
+                          <p className="mt-1 text-xs text-emerald-700">{sandboxResult.coaching_tip}</p>
+                          <p className="mt-1 text-xs text-emerald-700">Optimization: {sandboxResult.optimization_tip}</p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <button
+                              onClick={() => void applyQuickAction()}
+                              disabled={saving || actionApplied}
+                              className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+                            >
+                              {actionApplied ? 'Applied' : sandboxResult.quick_action_label}
+                            </button>
+                            <span className="text-[11px] text-emerald-700">Action Code: {sandboxResult.quick_action_code}</span>
+                          </div>
+                        </div>
+                        <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                          <p className="text-xs font-semibold text-slate-800">Alternative Strategy ({sandboxResult.alternative_strategy})</p>
+                          <p className="mt-1 text-xs text-slate-700">{sandboxResult.alternative_reply}</p>
+                          <p className="mt-1 text-xs text-slate-600">
+                            Alt Win Probability: {Math.round(sandboxResult.alternative_win_probability * 100)}% | Risk Note: {sandboxResult.alternative_risk_note}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {activeModule === 'monitor' && (
+              <section className="rounded-2xl border border-slate-200 bg-white p-5">
+                <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900"><Radar className="h-5 w-5 text-sky-600" />Live Monitoring</h2>
+                <p className="mt-1 text-sm text-slate-500">Human-in-the-loop safety panel for high-priority conversations.</p>
+
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-900">Priority Queue</p>
+                      <button
+                        onClick={() => void loadMonitorConversations()}
+                        disabled={monitorLoading}
+                        className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                    <div className="mt-2 space-y-2 text-sm text-slate-700">
+                      <p>High priority threads: {highPriorityConversations}</p>
+                      <p>Top rejection reason: {workbench.insights.top_rejection_reason || 'No dominant pattern'}.</p>
+                      <p>Strategy health signal: {workbench.insights.strategy_health}.</p>
+                    </div>
+
+                    {monitorLoading && <p className="mt-3 text-xs text-slate-500">Loading recent conversations...</p>}
+                    {monitorError && <p className="mt-3 text-xs text-rose-600">{monitorError}</p>}
+                    {!monitorLoading && !monitorError && monitorConversations.length === 0 && (
+                      <p className="mt-3 text-xs text-slate-500">No recent conversations found for monitoring.</p>
+                    )}
+                    {!monitorLoading && monitorConversations.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {monitorConversations.map((item) => (
+                          <div key={item.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="truncate text-xs font-semibold text-slate-900">{item.title}</p>
+                              <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                item.priority === 'high'
+                                  ? 'bg-rose-100 text-rose-700'
+                                  : item.priority === 'medium'
+                                    ? 'bg-amber-100 text-amber-700'
+                                    : 'bg-slate-100 text-slate-600'
+                              }`}>{item.priority.toUpperCase()}</span>
+                            </div>
+                            <p className="mt-1 text-[11px] text-slate-600">Updated {item.minutesAgo} mins ago</p>
+                            <p className="mt-1 text-[11px] text-slate-700">{item.note}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-sky-200 bg-sky-50 p-4">
+                    <p className="text-sm font-semibold text-sky-900">Manual Takeover Design</p>
+                    <p className="mt-2 text-sm text-sky-800">Recommended interaction: one-click &quot;Take Over&quot; button per active chat and a &quot;Return to AI&quot; handoff after human response.</p>
+                    <p className="mt-2 text-xs text-sky-700">Current backend endpoint for live sessions is not wired on this page yet, so this module focuses on operational signals and readiness.</p>
+                  </div>
+                </div>
+              </section>
+            )}
           </div>
         </section>
       </main>
