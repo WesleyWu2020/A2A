@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { AlertCircle, CheckCircle2, Clock3, Handshake, Loader2, Sparkles, Tag } from 'lucide-react';
 import { API_BASE_URL } from '@/lib/api';
 import { useChatStore, useConversationStore, useOrderStore } from '@/store';
+import { getCurrentUserId } from '@/lib/user-identity';
 import { Button } from '@/components/ui/button';
 
 interface NightMarketScheme {
@@ -50,6 +51,31 @@ interface NegotiationState {
   offer?: MarketOffer;
 }
 
+interface AutoRound {
+  round: number;
+  buyer_offer: number;
+  buyer_message: string;
+  seller_price: number;
+  seller_message: string;
+  status: 'active' | 'success' | 'failed' | 'expired';
+  accepted: boolean;
+}
+
+interface AutoBargainResponse {
+  negotiation_id: string;
+  strategy: 'aggressive' | 'balanced' | 'patient';
+  planned_turns: number;
+  executed_turns: number;
+  auto_rounds: AutoRound[];
+  status: 'active' | 'success' | 'failed' | 'expired';
+  current_round: number;
+  max_rounds: number;
+  mood_score: number;
+  current_seller_price: number;
+  transcript: TranscriptMessage[];
+  offer?: MarketOffer;
+}
+
 interface NightMarketPanelProps {
   sessionId?: string | null;
 }
@@ -61,6 +87,7 @@ interface AcceptResult {
 }
 
 const ACTIVE_NEGOTIATION_STORAGE_KEY = 'night_market_active_negotiation_id';
+const API_TIMEOUT_MS = 10000;
 const QUICK_BARGAIN_PROMPTS = [
   'I am a student on a tight budget. Can we get a better package deal?',
   'If I confirm today, could you offer a stronger discount on this bundle?',
@@ -73,11 +100,23 @@ function formatCurrency(value: number): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = API_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
   const router = useRouter();
   const createNewConversation = useConversationStore((state) => state.createNewConversation);
   const setCurrentOrder = useOrderStore((state) => state.setCurrentOrder);
   const negotiationSectionRef = useRef<HTMLElement | null>(null);
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  const autoPlaybackTimerRef = useRef<number | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [schemes, setSchemes] = useState<NightMarketScheme[]>([]);
@@ -91,11 +130,53 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
   const [acceptResult, setAcceptResult] = useState<AcceptResult | null>(null);
   const [creatingOrder, setCreatingOrder] = useState<boolean>(false);
   const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
+  const [autoStrategy, setAutoStrategy] = useState<'aggressive' | 'balanced' | 'patient'>('balanced');
+  const [autoTargetPrice, setAutoTargetPrice] = useState<string>('');
+  const [autoMaxBudget, setAutoMaxBudget] = useState<string>('');
+  const [autoMaxTurns, setAutoMaxTurns] = useState<number>(5);
+  const [autoRunning, setAutoRunning] = useState<boolean>(false);
+  const [lastAutoRounds, setLastAutoRounds] = useState<AutoRound[]>([]);
+  const [displayedTranscript, setDisplayedTranscript] = useState<TranscriptMessage[]>([]);
+  const [autoPlaying, setAutoPlaying] = useState<boolean>(false);
+  const [typingRole, setTypingRole] = useState<'buyer' | 'seller' | null>(null);
+
+  const clearAutoPlaybackTimer = () => {
+    if (autoPlaybackTimerRef.current !== null) {
+      window.clearTimeout(autoPlaybackTimerRef.current);
+      autoPlaybackTimerRef.current = null;
+    }
+  };
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowTs(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      clearAutoPlaybackTimer();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!negotiation) {
+      setDisplayedTranscript([]);
+      return;
+    }
+    if (!autoPlaying) {
+      setDisplayedTranscript(negotiation.transcript);
+    }
+  }, [negotiation, autoPlaying]);
+
+  useEffect(() => {
+    if (!activeScheme || !negotiation) return;
+    window.requestAnimationFrame(() => {
+      transcriptEndRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'end',
+      });
+    });
+  }, [displayedTranscript, typingRole, activeScheme, negotiation]);
 
   const loadSchemes = async () => {
     setLoading(true);
@@ -103,7 +184,7 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
     try {
       const params = new URLSearchParams();
       if (sessionId) params.set('session_id', sessionId);
-      const response = await fetch(`${API_BASE_URL}/api/plaza/night-market?${params.toString()}`, {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/api/plaza/night-market?${params.toString()}`, {
         cache: 'no-store',
       });
       const result = await response.json();
@@ -135,7 +216,7 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
 
   const loadNegotiationSession = async (negotiationId: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/negotiation/market/session/${negotiationId}`, {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/api/negotiation/market/session/${negotiationId}`, {
         cache: 'no-store',
       });
       const result = await response.json();
@@ -187,9 +268,12 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
       });
       setAcceptResult(null);
       setCreatedOrderId(null);
+      setLastAutoRounds([]);
 
       if (typeof data.current_seller_price === 'number' && data.current_seller_price > 0) {
         setOfferPrice(String(Math.round(data.current_seller_price * 0.96)));
+        setAutoTargetPrice(String(Math.round(data.current_seller_price * 0.92)));
+        setAutoMaxBudget(String(Math.round(data.current_seller_price * 0.98)));
       }
     } catch (err) {
       console.error(err);
@@ -223,7 +307,7 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
 
     setSubmitting(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/negotiation/market/start`, {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/api/negotiation/market/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -259,6 +343,9 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
           },
         ],
       });
+      setAutoTargetPrice(String(Math.round(data.current_seller_price * 0.92)));
+      setAutoMaxBudget(String(Math.round(data.current_seller_price * 0.98)));
+      setLastAutoRounds([]);
       if (typeof window !== 'undefined') {
         window.localStorage.setItem(ACTIVE_NEGOTIATION_STORAGE_KEY, String(data.negotiation_id));
       }
@@ -270,6 +357,143 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
     }
   };
 
+  const runAutoBargain = async () => {
+    const activeSessionId = sessionId ?? useChatStore.getState().sessionId;
+    if (!negotiation || !activeSessionId) return;
+
+    const targetPriceNum = Number(autoTargetPrice);
+    const maxBudgetNum = Number(autoMaxBudget);
+    const existingTranscript = negotiation.transcript;
+    let playbackStarted = false;
+
+    const startAutoPlayback = (base: TranscriptMessage[], additions: TranscriptMessage[]) => {
+      clearAutoPlaybackTimer();
+
+      if (additions.length === 0) {
+        setDisplayedTranscript(base);
+        setTypingRole(null);
+        setAutoPlaying(false);
+        setAutoRunning(false);
+        return;
+      }
+
+      setAutoPlaying(true);
+      setDisplayedTranscript(base);
+
+      const queue = [...additions];
+
+      const playNext = () => {
+        if (queue.length === 0) {
+          setTypingRole(null);
+          setAutoPlaying(false);
+          setAutoRunning(false);
+          return;
+        }
+
+        const next = queue.shift() as TranscriptMessage;
+        const textLength = next.message?.length ?? 0;
+        const typingDelay = Math.min(1200, Math.max(450, 320 + textLength * 14));
+        const settleDelay = Math.min(1600, Math.max(500, 380 + textLength * 10));
+
+        setTypingRole(next.role);
+        autoPlaybackTimerRef.current = window.setTimeout(() => {
+          setTypingRole(null);
+          setDisplayedTranscript((prev) => [...prev, next]);
+          autoPlaybackTimerRef.current = window.setTimeout(() => {
+            playNext();
+          }, settleDelay);
+        }, typingDelay);
+      };
+
+      playNext();
+    };
+
+    setAutoRunning(true);
+    setError(null);
+    try {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/api/negotiation/market/auto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          negotiation_id: negotiation.negotiation_id,
+          session_id: activeSessionId,
+          strategy: autoStrategy,
+          max_turns: autoMaxTurns,
+          target_price: Number.isFinite(targetPriceNum) && targetPriceNum > 0 ? targetPriceNum : undefined,
+          max_budget: Number.isFinite(maxBudgetNum) && maxBudgetNum > 0 ? maxBudgetNum : undefined,
+        }),
+      });
+      const result = await response.json();
+      if (result.code !== 200 || !result.data) {
+        throw new Error(result.message || 'Auto bargain failed');
+      }
+
+      const data = result.data as AutoBargainResponse;
+      const normalizedTranscript: TranscriptMessage[] = Array.isArray(data.transcript)
+        ? data.transcript.map((msg) => ({
+            role: msg.role === 'buyer' ? 'buyer' : 'seller',
+            message: msg.message,
+            price: typeof msg.price === 'number' ? msg.price : undefined,
+            round: Number(msg.round || 0),
+            timestamp: msg.timestamp,
+          }))
+        : [];
+
+      setNegotiation({
+        ...negotiation,
+        status: data.status,
+        current_round: data.current_round,
+        max_rounds: data.max_rounds,
+        mood_score: data.mood_score,
+        current_seller_price: data.current_seller_price,
+        transcript: normalizedTranscript,
+        offer: data.offer,
+      });
+      setLastAutoRounds(Array.isArray(data.auto_rounds) ? data.auto_rounds : []);
+
+      const hasPrefix = existingTranscript.every((msg, idx) => {
+        const next = normalizedTranscript[idx];
+        return (
+          !!next &&
+          next.role === msg.role &&
+          next.message === msg.message &&
+          Number(next.round || 0) === Number(msg.round || 0)
+        );
+      });
+
+      const baseTranscript = hasPrefix ? normalizedTranscript.slice(0, existingTranscript.length) : [];
+      const newMessages = hasPrefix
+        ? normalizedTranscript.slice(existingTranscript.length)
+        : normalizedTranscript;
+      playbackStarted = newMessages.length > 0;
+      startAutoPlayback(baseTranscript, newMessages);
+
+      if (data.status === 'active' && data.current_seller_price > 0) {
+        setOfferPrice(String(Math.round(data.current_seller_price * 0.96)));
+      }
+    } catch (err) {
+      console.error(err);
+      setError('Auto bargaining failed. You can retry or switch to manual offers.');
+      clearAutoPlaybackTimer();
+      setAutoPlaying(false);
+      setTypingRole(null);
+      setAutoRunning(false);
+    } finally {
+      if (!playbackStarted) {
+        setAutoRunning(false);
+      }
+    }
+  };
+
+  const skipAutoPlayback = () => {
+    if (!negotiation || !autoPlaying) return;
+    clearAutoPlaybackTimer();
+    setTypingRole(null);
+    setDisplayedTranscript(negotiation.transcript);
+    setAutoPlaying(false);
+    setAutoRunning(false);
+  };
+
   const submitCounterOffer = async () => {
     const activeSessionId = sessionId ?? useChatStore.getState().sessionId;
     if (!negotiation || !activeSessionId || !offerPrice) return;
@@ -279,7 +503,7 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
 
     setSubmitting(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/negotiation/market/counter`, {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/api/negotiation/market/counter`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -336,7 +560,7 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
 
     setAccepting(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/negotiation/market/accept`, {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/api/negotiation/market/accept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -380,7 +604,7 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
     setCreatingOrder(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/negotiation/market/create-order`, {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/api/negotiation/market/create-order`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -420,7 +644,7 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
 
       setCurrentOrder({
         id: orderId,
-        userId: 'demo_user_001',
+        userId: getCurrentUserId(),
         items: orderItems,
         status: 'pending',
         totalAmount: Number(acceptResult.finalPrice || negotiation.offer.final_price),
@@ -465,7 +689,7 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
     if (!negotiation) return [];
     const grouped = new Map<number, { round: number; buyer?: TranscriptMessage; seller?: TranscriptMessage }>();
 
-    for (const msg of negotiation.transcript) {
+    for (const msg of displayedTranscript) {
       if (msg.round <= 0) continue;
       const existing = grouped.get(msg.round) || { round: msg.round };
       if (msg.role === 'buyer') {
@@ -477,7 +701,7 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
     }
 
     return Array.from(grouped.values()).sort((a, b) => a.round - b.round);
-  }, [negotiation]);
+  }, [negotiation, displayedTranscript]);
 
   return (
     <section className="space-y-8">
@@ -582,7 +806,7 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
           </div>
 
           <div className="mt-4 space-y-3">
-            {negotiation.transcript.map((msg, idx) => (
+            {displayedTranscript.map((msg, idx) => (
               <div key={`${msg.role}-${idx}`} className={`flex ${msg.role === 'seller' ? 'justify-start' : 'justify-end'}`}>
                 <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${msg.role === 'seller' ? 'bg-slate-100 text-slate-800' : 'bg-indigo-600 text-white'}`}>
                   <p>{msg.message}</p>
@@ -594,11 +818,29 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
                 </div>
               </div>
             ))}
+            {typingRole && (
+              <div className={`flex ${typingRole === 'seller' ? 'justify-start' : 'justify-end'}`}>
+                <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${typingRole === 'seller' ? 'bg-slate-100 text-slate-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                  <p>{typingRole === 'seller' ? 'Seller Agent is typing...' : 'Buyer Agent is typing...'}</p>
+                </div>
+              </div>
+            )}
+            <div ref={transcriptEndRef} />
           </div>
 
           <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm font-semibold text-slate-900">Negotiation Journey</p>
             <p className="mt-1 text-xs text-slate-600">Each round shows your offer, the Seller Agent response, and price movement.</p>
+            {lastAutoRounds.length > 0 && (
+              <p className="mt-2 text-xs text-indigo-700">
+                Auto Bargain completed {lastAutoRounds.length} round{lastAutoRounds.length > 1 ? 's' : ''} using {autoStrategy} strategy.
+              </p>
+            )}
+            {autoPlaying && (
+              <p className="mt-2 text-xs text-amber-700">
+                Agents are negotiating now. Messages will appear step by step.
+              </p>
+            )}
             {negotiationRounds.length === 0 ? (
               <p className="mt-3 text-sm text-slate-500">Opening round is complete. Submit your first offer to start the journey.</p>
             ) : (
@@ -619,7 +861,7 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
             )}
           </div>
 
-          {negotiation.offer ? (
+          {negotiation.offer && !autoPlaying ? (
             <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
               <p className="text-sm font-semibold text-emerald-800">Limited Offer Locked</p>
               <p className="mt-1 text-xl font-bold text-emerald-700">{formatCurrency(negotiation.offer.final_price)}</p>
@@ -694,6 +936,77 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
             </div>
           ) : (
             <div className="mt-5 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-3">
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-indigo-900">Auto Bargain (Buyer Agent)</p>
+                    <Button
+                      onClick={runAutoBargain}
+                      disabled={autoRunning || submitting || autoPlaying || negotiation.status !== 'active' || negotiation.current_round >= negotiation.max_rounds}
+                      className="rounded-full bg-indigo-700 text-white hover:bg-indigo-800"
+                    >
+                      {autoRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                      {autoPlaying ? 'Auto Bargaining...' : 'Run Auto Bargain'}
+                    </Button>
+                  </div>
+                  {autoPlaying && (
+                    <div className="flex justify-end">
+                      <Button
+                        variant="outline"
+                        onClick={skipAutoPlayback}
+                        className="rounded-full"
+                      >
+                        Skip to Result
+                      </Button>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                    <select
+                      value={autoStrategy}
+                      onChange={(event) => setAutoStrategy(event.target.value as 'aggressive' | 'balanced' | 'patient')}
+                      className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm outline-none ring-indigo-500 focus:ring-2"
+                      disabled={autoRunning || autoPlaying || negotiation.status !== 'active'}
+                    >
+                      <option value="aggressive">Aggressive</option>
+                      <option value="balanced">Balanced</option>
+                      <option value="patient">Patient</option>
+                    </select>
+                    <input
+                      type="number"
+                      value={autoTargetPrice}
+                      onChange={(event) => setAutoTargetPrice(event.target.value)}
+                      min={1}
+                      step={1}
+                      placeholder="Target Price"
+                      className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm outline-none ring-indigo-500 focus:ring-2"
+                      disabled={autoRunning || autoPlaying || negotiation.status !== 'active'}
+                    />
+                    <input
+                      type="number"
+                      value={autoMaxBudget}
+                      onChange={(event) => setAutoMaxBudget(event.target.value)}
+                      min={1}
+                      step={1}
+                      placeholder="Max Budget"
+                      className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm outline-none ring-indigo-500 focus:ring-2"
+                      disabled={autoRunning || autoPlaying || negotiation.status !== 'active'}
+                    />
+                    <select
+                      value={String(autoMaxTurns)}
+                      onChange={(event) => setAutoMaxTurns(Number(event.target.value))}
+                      className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm outline-none ring-indigo-500 focus:ring-2"
+                      disabled={autoRunning || autoPlaying || negotiation.status !== 'active'}
+                    >
+                      <option value="2">2 turns</option>
+                      <option value="3">3 turns</option>
+                      <option value="4">4 turns</option>
+                      <option value="5">5 turns</option>
+                      <option value="6">6 turns</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Quick Bargain Prompts</p>
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -702,7 +1015,7 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
                       key={prompt}
                       type="button"
                       onClick={() => setMessage(prompt)}
-                      disabled={submitting || negotiation.status !== 'active'}
+                      disabled={submitting || autoPlaying || negotiation.status !== 'active'}
                       className="rounded-full border border-indigo-200 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Use: {prompt}
@@ -717,7 +1030,7 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
                   value={message}
                   onChange={(event) => setMessage(event.target.value)}
                   placeholder="Tell the seller why this price works for you"
-                  disabled={submitting || negotiation.status !== 'active'}
+                  disabled={submitting || autoPlaying || negotiation.status !== 'active'}
                 />
                 <input
                   type="number"
@@ -726,11 +1039,11 @@ export function NightMarketPanel({ sessionId }: NightMarketPanelProps) {
                   onChange={(event) => setOfferPrice(event.target.value)}
                   min={1}
                   step={1}
-                  disabled={submitting || negotiation.status !== 'active'}
+                  disabled={submitting || autoPlaying || negotiation.status !== 'active'}
                 />
                 <Button
                   onClick={submitCounterOffer}
-                  disabled={submitting || negotiation.status !== 'active' || negotiation.current_round >= negotiation.max_rounds}
+                  disabled={submitting || autoPlaying || negotiation.status !== 'active' || negotiation.current_round >= negotiation.max_rounds}
                   className="rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
                 >
                   {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}

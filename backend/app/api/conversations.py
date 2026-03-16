@@ -8,22 +8,19 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.core.database import execute_query
-from app.api.deps import get_standard_response
+from app.api.deps import AuthenticatedUser, get_current_user, get_standard_response
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/conversations", tags=["对话管理"])
 
-DEMO_USER_ID = "demo_user_001"
-
-
 # ── Request / Response models ─────────────────────────────────────────────────
 
 class CreateConversationRequest(BaseModel):
-    user_id: str = Field(default=DEMO_USER_ID)
+    user_id: Optional[str] = Field(default=None)
     title: Optional[str] = Field(default=None)
 
 
@@ -46,8 +43,15 @@ class GenerateTitleRequest(BaseModel):
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.post("/create")
-async def create_conversation(req: CreateConversationRequest):
+async def create_conversation(
+    req: CreateConversationRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+):
     """创建新对话"""
+    if req.user_id and req.user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Cannot create conversation for another user")
+
+    owner_user_id = req.user_id or current_user.user_id
     conversation_id = f"conv_{uuid.uuid4().hex[:16]}"
     session_id = f"session_{uuid.uuid4().hex[:16]}"
     title = req.title or "New Chat"
@@ -57,7 +61,7 @@ async def create_conversation(req: CreateConversationRequest):
         INSERT INTO conversations (conversation_id, user_id, title, session_id, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5, $5)
         """,
-        conversation_id, req.user_id, title, session_id,
+        conversation_id, owner_user_id, title, session_id,
         datetime.now(),
         fetch=False,
     )
@@ -75,8 +79,12 @@ async def list_conversations(
     user_id: str,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    current_user: AuthenticatedUser = Depends(get_current_user),
 ):
     """获取用户的所有对话列表（按更新时间倒序）"""
+    if user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Cannot list conversations for another user")
+
     rows = await execute_query(
         """
         SELECT conversation_id, user_id, title, session_id, created_at, updated_at

@@ -277,7 +277,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_activities_created_at ON agent_activities(c
 CREATE TABLE IF NOT EXISTS conversations (
     id SERIAL PRIMARY KEY,
     conversation_id VARCHAR(64) UNIQUE NOT NULL,
-    user_id VARCHAR(64) NOT NULL DEFAULT 'demo_user_001',
+    user_id VARCHAR(64) NOT NULL,
     title VARCHAR(200) DEFAULT '新对话',
     session_id VARCHAR(64),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

@@ -56,12 +56,12 @@ function ConversationItem({
       className={cn(
         'group relative flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm cursor-pointer transition-colors',
         isActive
-          ? 'bg-[#eaf6f1] text-[#0d5e42] font-medium'
-          : 'text-[#6e6b62] hover:bg-[#f5f3ef] hover:text-[#18170f]'
+          ? 'bg-[#eef2ff] text-[#3730a3] font-medium'
+          : 'text-[#6e6b62] hover:bg-[#f5f3ff] hover:text-[#18170f]'
       )}
       onClick={() => { if (!editing) onSelect(); }}
     >
-      <MessageCircle className={cn('h-4 w-4 shrink-0', isActive ? 'text-[#16865f]' : 'text-[#afa9a0]')} />
+      <MessageCircle className={cn('h-4 w-4 shrink-0', isActive ? 'text-[#4f46e5]' : 'text-[#afa9a0]')} />
 
       {editing ? (
         <div className="flex flex-1 items-center gap-1">
@@ -73,10 +73,10 @@ function ConversationItem({
               if (e.key === 'Enter') submitRename();
               if (e.key === 'Escape') setEditing(false);
             }}
-            className="flex-1 rounded border border-[#8dd4bc] bg-white px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#8dd4bc]"
+            className="flex-1 rounded border border-[#a5b4fc] bg-white px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#a5b4fc]"
             onClick={(e) => e.stopPropagation()}
           />
-          <button onClick={(e) => { e.stopPropagation(); submitRename(); }} className="text-[#16865f] hover:text-[#0d5e42]">
+          <button onClick={(e) => { e.stopPropagation(); submitRename(); }} className="text-[#4f46e5] hover:text-[#3730a3]">
             <Check className="h-3.5 w-3.5" />
           </button>
           <button onClick={(e) => { e.stopPropagation(); setEditing(false); }} className="text-[#afa9a0] hover:text-[#6e6b62]">
@@ -89,7 +89,7 @@ function ConversationItem({
           <div className="hidden items-center gap-0.5 group-hover:flex">
             <button
               onClick={(e) => { e.stopPropagation(); setEditValue(conversation.title); setEditing(true); }}
-              className="rounded p-1 text-[#afa9a0] hover:bg-[#ede9e2] hover:text-[#6e6b62]"
+              className="rounded p-1 text-[#afa9a0] hover:bg-[#eef2ff] hover:text-[#4f46e5]"
               title="Rename"
             >
               <Pencil className="h-3 w-3" />
@@ -130,7 +130,7 @@ export function ChatSidebar() {
     return (
       <button
         onClick={toggleSidebar}
-        className="fixed left-3 top-20 z-30 flex h-9 w-9 items-center justify-center rounded-lg border border-[#d9d3ca] bg-white text-[#6e6b62] shadow-sm transition-colors hover:bg-[#eaf6f1] hover:text-[#0d5e42]"
+        className="fixed left-3 top-20 z-30 flex h-9 w-9 items-center justify-center rounded-lg border border-[#d9d3ca] bg-white text-[#6e6b62] shadow-sm transition-colors hover:bg-[#eef2ff] hover:text-[#3730a3]"
         title="Open sidebar"
       >
         <PanelLeft className="h-4 w-4" />
@@ -144,12 +144,12 @@ export function ChatSidebar() {
       animate={{ width: 280, opacity: 1 }}
       exit={{ width: 0, opacity: 0 }}
       transition={{ duration: 0.2 }}
-      className="flex h-full w-[280px] shrink-0 flex-col border-r border-[#e4dfd6] bg-[#fffefc]"
+      className="flex h-full w-[280px] shrink-0 flex-col border-r border-[#e0dbff] bg-[#f8f7ff]"
     >
-      <div className="border-b border-[#eee8df] px-3 py-3">
+      <div className="border-b border-[#ece9ff] px-3 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#16865f] text-white">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#4f46e5] text-white">
               <Sparkles className="h-4 w-4" />
             </div>
             <div>
@@ -159,7 +159,7 @@ export function ChatSidebar() {
           </div>
           <button
             onClick={toggleSidebar}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6e6b62] transition-colors hover:bg-[#f5f3ef] hover:text-[#18170f]"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6e6b62] transition-colors hover:bg-[#eef2ff] hover:text-[#3730a3]"
             title="Close sidebar"
           >
             <PanelLeftClose className="h-4 w-4" />
@@ -167,17 +167,17 @@ export function ChatSidebar() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 border-b border-[#eee8df] px-3 py-3">
+      <div className="flex items-center gap-2 border-b border-[#ece9ff] px-3 py-3">
         <button
           onClick={createNewConversation}
-          className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[#16865f] bg-[#16865f] px-3 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#14a37a]"
+          className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[#4f46e5] bg-[#4f46e5] px-3 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#6366f1]"
         >
           <Plus className="h-4 w-4" />
           New Wish
         </button>
         <button
           type="button"
-          className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#e0d9cf] bg-[#f5f3ef] text-[#6e6b62] transition-colors hover:bg-[#ede9e2] hover:text-[#18170f]"
+          className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#ddd9ff] bg-[#f3f2ff] text-[#6e6b62] transition-colors hover:bg-[#e9e8ff] hover:text-[#3730a3]"
           title="Search"
         >
           <Search className="h-4 w-4" />
@@ -214,9 +214,9 @@ export function ChatSidebar() {
                 <button
                   key={`${item.conversation_id}-hist`}
                   onClick={() => switchConversation(item.conversation_id)}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#6e6b62] transition-colors hover:bg-[#f5f3ef]"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#6e6b62] transition-colors hover:bg-[#eef2ff]"
                 >
-                  <span className={cn('h-1.5 w-1.5 rounded-full', idx === 0 ? 'bg-[#16865f]' : idx === 1 ? 'bg-[#d97706]' : 'bg-[#afa9a0]')} />
+                  <span className={cn('h-1.5 w-1.5 rounded-full', idx === 0 ? 'bg-[#4f46e5]' : idx === 1 ? 'bg-[#7c3aed]' : 'bg-[#afa9a0]')} />
                   <span className="truncate">{item.title}</span>
                 </button>
               ))}

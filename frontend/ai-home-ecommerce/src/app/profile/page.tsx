@@ -8,7 +8,6 @@ import {
   Home,
   Tag,
   Plus,
-  Trash2,
   Edit3,
   Check,
   X,

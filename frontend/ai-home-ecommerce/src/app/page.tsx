@@ -383,7 +383,7 @@ export default function HomePage() {
       <footer className="border-t border-slate-200 bg-white px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl text-center">
           <p className="text-sm text-slate-500">
-            © 2024 AI Home Assistant. Smarter home furnishing, powered by AI.
+            © 2024 MartGenie. Smarter home furnishing, powered by AI.
           </p>
         </div>
       </footer>

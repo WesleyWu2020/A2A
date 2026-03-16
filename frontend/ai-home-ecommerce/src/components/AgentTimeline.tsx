@@ -41,22 +41,22 @@ const stageConfig: Record<AgentStage, {
     label: 'Searching Catalog',
     description: 'AI Buyer searching 4,500+ products...',
     icon: Search,
-    color: 'text-[#0d5e42]',
-    bgColor: 'bg-[#eaf6f1]',
+    color: 'text-[#3730a3]',
+    bgColor: 'bg-[#eef2ff]',
   },
   filtering: {
     label: 'Filtering Results',
     description: 'Matching products to your requirements...',
     icon: Filter,
-    color: 'text-[#0d5e42]',
-    bgColor: 'bg-[#eaf6f1]',
+    color: 'text-[#3730a3]',
+    bgColor: 'bg-[#eef2ff]',
   },
   inquiring: {
     label: 'Checking Prices',
     description: 'Getting latest pricing from sellers...',
     icon: MessageSquare,
-    color: 'text-[#0d5e42]',
-    bgColor: 'bg-[#eaf6f1]',
+    color: 'text-[#3730a3]',
+    bgColor: 'bg-[#eef2ff]',
   },
   negotiating: {
     label: 'Negotiating',
@@ -69,15 +69,15 @@ const stageConfig: Record<AgentStage, {
     label: 'Curating Packages',
     description: 'Compiling 3 optimized packages for you...',
     icon: FileCheck,
-    color: 'text-[#16865f]',
-    bgColor: 'bg-[#eaf6f1]',
+    color: 'text-[#4f46e5]',
+    bgColor: 'bg-[#eef2ff]',
   },
   completed: {
     label: 'Completed',
     description: 'All done! Your packages are ready.',
     icon: CheckCircle2,
-    color: 'text-[#16865f]',
-    bgColor: 'bg-[#eaf6f1]',
+    color: 'text-[#4f46e5]',
+    bgColor: 'bg-[#eef2ff]',
   },
   error: {
     label: 'Error',
@@ -113,7 +113,7 @@ export function AgentTimeline({
 
   if (compact) {
     return (
-      <div className={cn('rounded-xl bg-white p-4 shadow-sm border border-[#e6e0d8]', className)}>
+      <div className={cn('rounded-xl bg-white p-4 shadow-sm border border-[#e0dbff]', className)}>
         <div className="flex items-center gap-3">
           {currentStage && currentStage.stage !== 'completed' && currentStage.stage !== 'error' ? (
             <>
@@ -135,7 +135,7 @@ export function AgentTimeline({
                     transition={{ duration: 0.3 }}
                     className={cn(
                       'h-full rounded-full',
-                      currentStage.stage === 'negotiating' ? 'bg-[#d97706]' : 'bg-[#16865f]'
+                      currentStage.stage === 'negotiating' ? 'bg-[#d97706]' : 'bg-[#6366f1]'
                     )}
                   />
                 </div>
@@ -144,11 +144,11 @@ export function AgentTimeline({
             </>
           ) : (
             <>
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#eaf6f1] text-[#16865f]">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#eef2ff] text-[#4f46e5]">
                 <CheckCircle2 className="h-5 w-5" />
               </div>
               <div>
-                <p className="font-medium text-[#16865f]">Done</p>
+                <p className="font-medium text-[#4f46e5]">Done</p>
                 <p className="text-sm text-[#6e6b62]">Packages ready to view</p>
               </div>
             </>
@@ -159,14 +159,14 @@ export function AgentTimeline({
   }
 
   return (
-    <div className={cn('rounded-2xl bg-white p-6 shadow-sm border border-[#e6e0d8]', className)}>
+    <div className={cn('rounded-2xl bg-white p-6 shadow-sm border border-[#e0dbff]', className)}>
       <h3 className="mb-6 text-lg font-semibold text-[#18170f]">AI Agent Activity Log</h3>
       
       <div className="relative">
         {/* Progress Line */}
-        <div className="absolute bottom-0 left-5 top-0 w-0.5 bg-[#ede9e2]">
+        <div className="absolute bottom-0 left-5 top-0 w-0.5 bg-[#e9e7ff]">
           <motion.div
-            className="absolute left-0 top-0 w-full bg-gradient-to-b from-[#16865f] to-[#8dd4bc]"
+            className="absolute left-0 top-0 w-full bg-gradient-to-b from-[#4f46e5] to-[#a5b4fc]"
             initial={{ height: '0%' }}
             animate={{ 
               height: currentStageIndex >= 0 
@@ -201,7 +201,7 @@ export function AgentTimeline({
                 <div className={cn(
                   'relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-2 transition-all duration-300',
                   isCompleted
-                    ? 'border-[#16865f] bg-[#16865f] text-white'
+                    ? 'border-[#4f46e5] bg-[#4f46e5] text-white'
                     : isCurrent
                     ? cn('border-current', config.bgColor, config.color)
                     : 'border-[#e6e0d8] bg-white text-[#c6c0b8]'
@@ -225,7 +225,7 @@ export function AgentTimeline({
                       {config.label}
                     </h4>
                     {isCurrent && (
-                      <span className="text-sm font-medium text-[#16865f]">
+                      <span className="text-sm font-medium text-[#4f46e5]">
                         {currentStage?.progress}%
                       </span>
                     )}
@@ -246,7 +246,7 @@ export function AgentTimeline({
                         initial={{ width: 0 }}
                         animate={{ width: `${currentStage?.progress || 0}%` }}
                         transition={{ duration: 0.3 }}
-                        className="h-full rounded-full bg-gradient-to-r from-[#16865f] to-[#8dd4bc]"
+                        className="h-full rounded-full bg-gradient-to-r from-[#4f46e5] to-[#a5b4fc]"
                       />
                     </div>
                   )}

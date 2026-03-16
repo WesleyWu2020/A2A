@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     """应用配置类"""
     
     # 应用配置
-    APP_NAME: str = Field(default="Home AI Design API", description="应用名称")
+    APP_NAME: str = Field(default="MartGenie", description="应用名称")
     APP_VERSION: str = Field(default="1.0.0", description="应用版本")
     DEBUG: bool = Field(default=False, description="调试模式")
     
@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     # OpenRouter 额外配置
     OPENROUTER_SITE_URL: str = Field(default="https://ai-home-ecommerce.demo", description="OpenRouter HTTP-Referer")
-    OPENROUTER_SITE_NAME: str = Field(default="AI Home Ecommerce", description="OpenRouter X-Title")
+    OPENROUTER_SITE_NAME: str = Field(default="MartGenie", description="OpenRouter X-Title")
     
     # CORS 配置
     CORS_ORIGINS: List[str] = Field(

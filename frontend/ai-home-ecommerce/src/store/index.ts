@@ -14,11 +14,11 @@ import {
   ImplicitPreferencePrompt,
   ProjectDesign,
   ProjectContext,
-  FavoriteItem,
   SkillInvocation,
   Conversation,
 } from '@/types';
 import { apiClient, getWebSocketClient, resetWebSocketClient } from '@/lib/api';
+import { getCurrentUserId } from '@/lib/user-identity';
 
 // ==================== Chat Store ====================
 
@@ -605,9 +605,6 @@ export const useCartStore = create<CartState>((set, get) => ({
 
 // ==================== Memory Store ====================
 
-// 用固定 userId 模拟匿名用户（Demo用途，真实场景应从auth获取）
-export const DEMO_USER_ID = 'demo_user_001';
-
 const getConversationMessagesStorageKey = (conversationId: string) =>
   `conversation_messages_${conversationId}`;
 
@@ -647,7 +644,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   loadUserMemory: async () => {
     set({ isLoadingMemory: true });
     try {
-      const res = await apiClient.getUserMemory(DEMO_USER_ID);
+      const res = await apiClient.getUserMemory(getCurrentUserId());
       if (res.success && res.data) {
         set({ userMemory: res.data });
       }
@@ -660,7 +657,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
 
   addTag: async (tag) => {
     try {
-      const res = await apiClient.addMemoryTag(DEMO_USER_ID, tag);
+      const res = await apiClient.addMemoryTag(getCurrentUserId(), tag);
       if (res.success && res.data) {
         set((state) => ({
           userMemory: state.userMemory
@@ -675,7 +672,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
 
   removeTag: async (tagKey) => {
     try {
-      const res = await apiClient.removeMemoryTag(DEMO_USER_ID, tagKey);
+      const res = await apiClient.removeMemoryTag(getCurrentUserId(), tagKey);
       if (res.success && res.data) {
         set((state) => ({
           userMemory: state.userMemory
@@ -721,7 +718,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
 
   upsertSpace: async (space) => {
     try {
-      const res = await apiClient.upsertSpace(DEMO_USER_ID, space);
+      const res = await apiClient.upsertSpace(getCurrentUserId(), space);
       if (res.success && res.data) {
         set({ userMemory: res.data });
       }
@@ -732,7 +729,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
 
   updateNickname: async (nickname) => {
     try {
-      const res = await apiClient.updateUserMemory(DEMO_USER_ID, { nickname });
+      const res = await apiClient.updateUserMemory(getCurrentUserId(), { nickname });
       if (res.success && res.data) {
         set({ userMemory: res.data });
       }
@@ -772,7 +769,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   loadProjects: async () => {
     set({ isLoading: true });
     try {
-      const res = await apiClient.listProjects(DEMO_USER_ID);
+      const res = await apiClient.listProjects(getCurrentUserId());
       if (res.success && res.data) {
         const projects = res.data.projects || [];
         const activeId = res.data.active_project_id;
@@ -788,7 +785,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   createProject: async (name, icon = '🏠', context) => {
     try {
-      const res = await apiClient.createProject(DEMO_USER_ID, name, icon, context);
+      const res = await apiClient.createProject(getCurrentUserId(), name, icon, context);
       if (res.success && res.data) {
         await get().loadProjects();
         return res.data;
@@ -810,7 +807,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   deleteProject: async (projectId) => {
     try {
-      await apiClient.deleteProject(projectId, DEMO_USER_ID);
+      await apiClient.deleteProject(projectId, getCurrentUserId());
       await get().loadProjects();
     } catch (e) {
       console.warn('Failed to delete project:', e);
@@ -819,7 +816,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   switchProject: async (projectId) => {
     try {
-      await apiClient.setActiveProject(DEMO_USER_ID, projectId);
+      await apiClient.setActiveProject(getCurrentUserId(), projectId);
       const { projects } = get();
       const active = projects.find((p) => p.project_id === projectId) || null;
       set({ activeProjectId: projectId, activeProject: active });
@@ -832,7 +829,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const { activeProjectId } = get();
     if (!activeProjectId) return;
     try {
-      await apiClient.addFavorite(DEMO_USER_ID, activeProjectId, {
+      await apiClient.addFavorite(getCurrentUserId(), activeProjectId, {
         product_id: productId,
         product_name: productName,
         price,
@@ -849,7 +846,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const { activeProjectId } = get();
     if (!activeProjectId) return;
     try {
-      await apiClient.removeFavorite(DEMO_USER_ID, activeProjectId, productId);
+      await apiClient.removeFavorite(getCurrentUserId(), activeProjectId, productId);
       await get().loadProjects();
     } catch (e) {
       console.warn('Failed to remove favorite:', e);
@@ -891,7 +888,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   loadConversations: async () => {
     set({ isLoading: true });
     try {
-      const res = await apiClient.listConversations(DEMO_USER_ID);
+      const res = await apiClient.listConversations(getCurrentUserId());
       if (res.success && res.data) {
         set({ conversations: res.data.conversations || [] });
       }
@@ -904,12 +901,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   createNewConversation: async () => {
     try {
-      const res = await apiClient.createConversation(DEMO_USER_ID);
+      const currentUserId = getCurrentUserId();
+      const res = await apiClient.createConversation(currentUserId);
       if (res.success && res.data) {
         const { conversation_id, session_id, title, created_at } = res.data;
         const newConv: Conversation = {
           conversation_id,
-          user_id: DEMO_USER_ID,
+          user_id: currentUserId,
           title,
           session_id,
           created_at,

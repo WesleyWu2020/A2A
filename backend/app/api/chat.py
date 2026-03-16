@@ -11,14 +11,14 @@ import re
 from typing import Optional, Any
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 
 from app.models.user import ChatRequest, ChatResponse, IntentType
 from app.models.memory import SessionContextPin, SessionMemoryState, MemoryTag, ImplicitPreferenceDetected
 from app.agents.orchestrator import get_orchestrator, create_initial_state
 from app.core.redis import cache
-from app.api.deps import get_standard_response
+from app.api.deps import AuthenticatedUser, get_current_user, get_standard_response
 from app.services.project_service import ProjectService
 from app.services.skills_service import SkillsService
 
@@ -218,7 +218,6 @@ def _generate_fallback_schemes() -> list:
 SESSION_PINS_KEY = "session_pins:{session_id}"
 SESSION_PINS_TTL = 60 * 60 * 4
 USER_MEMORY_KEY = "user_memory:{user_id}"
-DEMO_USER_ID = "demo_user_001"
 
 _project_service = ProjectService()
 _skills_service = SkillsService()
@@ -269,7 +268,7 @@ def _build_structured_preference_context(preferences: Optional[dict[str, Any]]) 
 async def _build_profile_prompt_context(
     message: str,
     session_id: str,
-    current_state: dict,
+    user_id: str,
 ) -> tuple[str, bool]:
     """
     If user asks to design based on profile, load long-term memory and append
@@ -278,7 +277,6 @@ async def _build_profile_prompt_context(
     if not _should_use_profile_context(message):
         return message, False
 
-    user_id = current_state.get("user_id") or DEMO_USER_ID
     memory_key = USER_MEMORY_KEY.format(user_id=user_id)
     memory_data = await cache.get_json(memory_key)
     if not memory_data:
@@ -469,7 +467,10 @@ def _detect_implicit_preference(message: str) -> Optional[ImplicitPreferenceDete
 
 
 @router.post("/message", response_model=dict)
-async def send_message(request: ChatRequest):
+async def send_message(
+    request: ChatRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+):
     """
     发送消息
 
@@ -494,19 +495,21 @@ async def send_message(request: ChatRequest):
             try:
                 current_state = AgentState(**state_data)
             except Exception:
-                current_state = create_initial_state(session_id)
+                current_state = create_initial_state(session_id, current_user.user_id)
         else:
-            current_state = create_initial_state(session_id)
+            current_state = create_initial_state(session_id, current_user.user_id)
+
+        current_state["user_id"] = current_user.user_id
 
         # 运行 Agent 工作流（先注入结构化偏好，再按需注入长期记忆上下文）
         preference_context = _build_structured_preference_context(request.preferences)
         base_message = request.message if not preference_context else f"{request.message}\n\n{preference_context}"
         agent_message, used_profile_context = await _build_profile_prompt_context(
-            base_message, session_id, current_state
+            base_message, session_id, current_user.user_id
         )
 
         # ── Inject active project context + favorites RAG ─────────────────
-        user_id = current_state.get("user_id") or DEMO_USER_ID
+        user_id = current_user.user_id
         project_context_block = ""
         rag_block = ""
         active_project_name = None
@@ -639,7 +642,10 @@ async def send_message(request: ChatRequest):
 
 
 @router.post("/stream")
-async def send_message_stream(request: ChatRequest):
+async def send_message_stream(
+    request: ChatRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+):
     """
     发送消息（流式响应）
     """
@@ -656,7 +662,9 @@ async def send_message_stream(request: ChatRequest):
                 from app.agents.orchestrator import AgentState
                 current_state = AgentState(**state_data)
             else:
-                current_state = create_initial_state(session_id)
+                current_state = create_initial_state(session_id, current_user.user_id)
+
+            current_state["user_id"] = current_user.user_id
             
             # 发送开始标记
             yield {
@@ -668,11 +676,11 @@ async def send_message_stream(request: ChatRequest):
             preference_context = _build_structured_preference_context(request.preferences)
             base_message = request.message if not preference_context else f"{request.message}\n\n{preference_context}"
             agent_message, used_profile_context = await _build_profile_prompt_context(
-                base_message, session_id, current_state
+                base_message, session_id, current_user.user_id
             )
 
             # ── Inject active project context + favorites RAG ─────────────
-            user_id = current_state.get("user_id") or DEMO_USER_ID
+            user_id = current_user.user_id
             active_project_name = None
             try:
                 project_context_block, rag_block_raw = await _build_project_and_rag_context(user_id)

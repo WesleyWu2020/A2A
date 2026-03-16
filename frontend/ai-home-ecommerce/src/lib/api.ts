@@ -23,6 +23,7 @@ import {
   SellerInsightSummary,
   SellerWorkbenchData,
 } from '@/types';
+import { getAuthHeaders } from '@/lib/user-identity';
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
@@ -45,6 +46,7 @@ class ApiClient {
     const config: RequestInit = {
       headers: {
         'Content-Type': 'application/json',
+        ...getAuthHeaders(),
         ...options.headers,
       },
       ...options,
@@ -99,7 +101,10 @@ class ApiClient {
   ): Promise<Record<string, unknown>> {
     const response = await fetch(`${this.baseUrl}/api/chat/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
       body: JSON.stringify({
         session_id: request.sessionId,
         message: request.message,

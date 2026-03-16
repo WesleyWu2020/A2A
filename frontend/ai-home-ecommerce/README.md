@@ -2,16 +2,22 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
-First, run the development server:
+1. Create env file and fill Google OAuth credentials:
+
+```bash
+cp .env.example .env.local
+```
+
+2. In Google Cloud Console, configure OAuth redirect URI:
+
+```text
+http://localhost:3000/api/auth/callback/google
+```
+
+3. Run development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.

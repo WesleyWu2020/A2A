@@ -33,16 +33,18 @@ export function NegotiationDialog({ isOpen, onClose, record }: NegotiationDialog
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-sm"
           />
 
-          {/* Dialog — flex column so header+footer stay fixed while content scrolls */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex flex-col max-h-[88vh] overflow-hidden rounded-2xl bg-white shadow-2xl"
-          >
+          {/* Dialog wrapper keeps the panel inside viewport and avoids clipping */}
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6">
+            {/* Dialog — flex column so header+footer stay fixed while content scrolls */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl max-h-[calc(100vh-2rem)] sm:max-h-[88vh]"
+            >
             {/* Header */}
             <div className="flex flex-shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
               <div className="flex items-center gap-3">
@@ -192,7 +194,8 @@ export function NegotiationDialog({ isOpen, onClose, record }: NegotiationDialog
                 Got It
               </button>
             </div>
-          </motion.div>
+            </motion.div>
+          </div>
         </>
       )}
     </AnimatePresence>

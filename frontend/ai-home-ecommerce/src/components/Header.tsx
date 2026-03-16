@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { Home, MessageCircle, ShoppingBag, Sparkles, Store, User } from 'lucide-react';
+import { signOut, useSession } from 'next-auth/react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
@@ -17,6 +19,8 @@ const navItems = [
 
 export function Header() {
   const pathname = usePathname();
+  const { data: session, status } = useSession();
+  const isAuthed = status === 'authenticated';
 
   return (
     <motion.header
@@ -37,7 +41,7 @@ export function Header() {
               <Sparkles className="h-5 w-5 text-white" />
             </div>
             <span className="hidden text-xl font-bold bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent sm:block">
-              AI Home Assistant
+              MartGenie
             </span>
           </motion.div>
         </Link>
@@ -97,14 +101,40 @@ export function Header() {
           })}
         </nav>
 
-        {/* CTA Button */}
-        <Link
-          href="/chat"
-          className="hidden sm:flex items-center gap-2 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-indigo-500/25 transition-all hover:shadow-indigo-500/40 hover:scale-105"
-        >
-          <MessageCircle className="h-4 w-4" />
-          Start Chat
-        </Link>
+        {/* Auth / CTA */}
+        {isAuthed ? (
+          <div className="hidden sm:flex items-center">
+            <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-2 py-1">
+              {session?.user?.image ? (
+                <Image
+                  src={session.user.image}
+                  alt={session.user.name || 'User avatar'}
+                  width={28}
+                  height={28}
+                  className="h-7 w-7 rounded-full object-cover"
+                />
+              ) : (
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+                  <User className="h-4 w-4" />
+                </div>
+              )}
+              <button
+                onClick={() => signOut({ callbackUrl: '/' })}
+                className="rounded-full px-2 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100"
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+        ) : (
+          <Link
+            href="/auth/signin?callbackUrl=%2Fchat"
+            className="hidden sm:flex items-center gap-2 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-indigo-500/25 transition-all hover:shadow-indigo-500/40 hover:scale-105"
+          >
+            <MessageCircle className="h-4 w-4" />
+            Continue with Google
+          </Link>
+        )}
       </div>
     </motion.header>
   );

@@ -146,6 +146,7 @@ const itemVariants = {
 };
 
 const SCROLL_TOP_OFFSET = 84;
+const API_TIMEOUT_MS = 10000;
 
 function scrollToElementWithOffset(node: HTMLElement | null) {
   if (!node) return;
@@ -165,7 +166,10 @@ async function fetchPlazaData({
   preferenceStyle?: string;
   profileTags?: string[];
 }): Promise<PlazaData | null> {
+  let timeoutId: number | null = null;
   try {
+    const controller = new AbortController();
+    timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
     const params = new URLSearchParams();
 
     if (sessionId) {
@@ -185,7 +189,7 @@ async function fetchPlazaData({
     const query = params.toString();
     const response = await fetch(
       `${API_BASE_URL}/api/plaza/home${query ? `?${query}` : ''}`,
-      { cache: 'no-store' }
+      { cache: 'no-store', signal: controller.signal }
     );
     const result = await response.json();
     if (result.code === 200) {
@@ -195,6 +199,10 @@ async function fetchPlazaData({
   } catch (error) {
     console.error('Failed to fetch plaza data:', error);
     return null;
+  } finally {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
   }
 }
 
@@ -608,7 +616,7 @@ export default function PlazaPage() {
       <footer className="mt-20 border-t border-slate-200 bg-white px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl text-center">
           <p className="text-sm text-slate-500">
-            © 2024 AI Home Assistant. AI-Powered Home Furnishing Discovery.
+            © 2024 MartGenie. AI-Powered Home Furnishing Discovery.
           </p>
         </div>
       </footer>

@@ -56,6 +56,15 @@ class MarketCreateOrderRequest(BaseModel):
     session_id: str = Field(..., description="会话ID")
 
 
+class MarketAutoBargainRequest(BaseModel):
+    negotiation_id: str = Field(..., description="议价会话ID")
+    session_id: str = Field(..., description="会话ID")
+    target_price: Optional[float] = Field(default=None, gt=0, description="目标成交价")
+    max_budget: Optional[float] = Field(default=None, gt=0, description="最高预算")
+    strategy: str = Field(default="balanced", description="买家自动砍价策略: aggressive/balanced/patient")
+    max_turns: int = Field(default=5, ge=1, le=8, description="自动回合上限")
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -125,6 +134,76 @@ def _calc_mood_delta(message: str, offer_ratio: float) -> int:
     elif offer_ratio >= 1.0:
         delta += 3
     return delta
+
+
+def _auto_buyer_message(strategy: str, round_index: int, rounds_left: int, offer: float, seller_price: float) -> str:
+    if strategy == "aggressive":
+        templates = [
+            "I am ready to close quickly if this can work. My offer is {offer:.2f}.",
+            "I want to keep all items in this bundle. Can we lock at {offer:.2f}?",
+            "I can confirm now at {offer:.2f}. Please help me close this today.",
+        ]
+    elif strategy == "patient":
+        templates = [
+            "I really like this set. Let us find a sustainable middle point at {offer:.2f}.",
+            "If we can align near {offer:.2f}, I can place this order today.",
+            "I am flexible on delivery and timing. Can you support {offer:.2f}?",
+        ]
+    else:
+        templates = [
+            "This fits my current budget plan at {offer:.2f}. Can we make it work?",
+            "I am close to confirming. Could we settle this bundle at {offer:.2f}?",
+            "I can proceed immediately at {offer:.2f}. Please share your best close price.",
+        ]
+
+    base = templates[min(round_index, len(templates) - 1)].format(offer=offer)
+    if rounds_left <= 1:
+        return f"{base} This is my final round number."
+    if seller_price > offer:
+        gap = seller_price - offer
+        return f"{base} Current gap is {gap:.2f}, so I am aiming for a practical close."
+    return base
+
+
+def _next_auto_offer(
+    strategy: str,
+    round_index: int,
+    total_rounds: int,
+    last_seller_price: float,
+    target_price: Optional[float],
+    max_budget: Optional[float],
+) -> float:
+    anchor_target = target_price
+    if max_budget is not None:
+        anchor_target = min(anchor_target, max_budget) if anchor_target is not None else max_budget
+
+    if anchor_target is None:
+        if strategy == "aggressive":
+            anchor_target = last_seller_price * 0.9
+        elif strategy == "patient":
+            anchor_target = last_seller_price * 0.95
+        else:
+            anchor_target = last_seller_price * 0.93
+
+    if strategy == "aggressive":
+        opening_ratio = 0.82
+    elif strategy == "patient":
+        opening_ratio = 0.9
+    else:
+        opening_ratio = 0.86
+
+    opening_offer = max(last_seller_price * opening_ratio, anchor_target * 0.88)
+    progress = (round_index + 1) / max(total_rounds, 1)
+    projected = opening_offer + (anchor_target - opening_offer) * progress
+
+    # Keep offer realistic to avoid hard rejection lockouts and keep monotonic close toward seller side.
+    lower_bound = last_seller_price * 0.74
+    upper_bound = last_seller_price * 1.02
+    offer = max(lower_bound, min(projected, upper_bound))
+
+    if max_budget is not None:
+        offer = min(offer, max_budget)
+    return round(max(1.0, offer), 2)
 
 
 def _generate_mock_negotiation_record(scheme_id: str):
@@ -708,6 +787,148 @@ async def market_create_order(request: MarketCreateOrderRequest):
         raise
     except Exception as e:
         logger.error(f"Market create order failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/market/auto")
+async def auto_market_bargain(request: MarketAutoBargainRequest):
+    """Run automated multi-round buyer-vs-seller bargaining and return each round."""
+    try:
+        session = await _get_market_session(request.negotiation_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Negotiation session not found")
+        if session["session_id"] != request.session_id:
+            raise HTTPException(status_code=403, detail="Session mismatch")
+        if session["status"] != "active":
+            raise HTTPException(status_code=400, detail=f"Negotiation is {session['status']}")
+
+        strategy = (request.strategy or "balanced").lower().strip()
+        if strategy not in {"aggressive", "balanced", "patient"}:
+            strategy = "balanced"
+
+        rounds_left = max(0, session["max_rounds"] - session["current_round"])
+        planned_turns = min(rounds_left, request.max_turns)
+
+        if planned_turns <= 0:
+            latest = await _get_market_session(request.negotiation_id)
+            return {
+                "code": 200,
+                "message": "success",
+                "data": {
+                    "negotiation_id": request.negotiation_id,
+                    "strategy": strategy,
+                    "planned_turns": 0,
+                    "executed_turns": 0,
+                    "auto_rounds": [],
+                    "status": latest["status"] if latest else session["status"],
+                    "current_round": latest["current_round"] if latest else session["current_round"],
+                    "max_rounds": latest["max_rounds"] if latest else session["max_rounds"],
+                    "mood_score": latest["mood_score"] if latest else session["mood_score"],
+                    "current_seller_price": latest["latest_seller_price"] if latest else session["latest_seller_price"],
+                    "transcript": latest["transcript"] if latest else session["transcript"],
+                    "offer": None,
+                },
+            }
+
+        auto_rounds = []
+        working_session = session
+
+        for i in range(planned_turns):
+            if working_session["status"] != "active":
+                break
+
+            seller_price = float(working_session["latest_seller_price"] or working_session["original_price"])
+            turns_remaining = planned_turns - i
+            offer = _next_auto_offer(
+                strategy=strategy,
+                round_index=i,
+                total_rounds=planned_turns,
+                last_seller_price=seller_price,
+                target_price=request.target_price,
+                max_budget=request.max_budget,
+            )
+            buyer_message = _auto_buyer_message(
+                strategy=strategy,
+                round_index=i,
+                rounds_left=turns_remaining,
+                offer=offer,
+                seller_price=seller_price,
+            )
+
+            counter_resp = await market_counter_offer(
+                MarketCounterRequest(
+                    negotiation_id=request.negotiation_id,
+                    session_id=request.session_id,
+                    offer_price=offer,
+                    message=buyer_message,
+                )
+            )
+            data = counter_resp["data"]
+            auto_rounds.append(
+                {
+                    "round": data["current_round"],
+                    "buyer_offer": data["buyer_offer"],
+                    "buyer_message": buyer_message,
+                    "seller_price": data["seller_price"],
+                    "seller_message": data["seller_message"],
+                    "status": data["status"],
+                    "accepted": data["accepted"],
+                }
+            )
+
+            working_session = await _get_market_session(request.negotiation_id)
+            if not working_session:
+                break
+            if data["status"] != "active":
+                break
+
+        latest = await _get_market_session(request.negotiation_id)
+        if not latest:
+            raise HTTPException(status_code=404, detail="Negotiation session not found")
+
+        latest_offer = await execute_query(
+            """
+            SELECT offer_id, final_price, discount_percent, expires_at, is_used
+            FROM limited_offers
+            WHERE negotiation_id = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            request.negotiation_id,
+            fetch_one=True,
+        )
+        offer_payload = None
+        if latest_offer:
+            offer_payload = {
+                "offer_id": latest_offer["offer_id"],
+                "final_price": float(latest_offer["final_price"]),
+                "discount_percent": round(float(latest_offer["discount_percent"]) * 100, 2),
+                "expires_at": latest_offer["expires_at"].isoformat(),
+                "is_used": latest_offer["is_used"],
+            }
+
+        return {
+            "code": 200,
+            "message": "success",
+            "data": {
+                "negotiation_id": request.negotiation_id,
+                "strategy": strategy,
+                "planned_turns": planned_turns,
+                "executed_turns": len(auto_rounds),
+                "auto_rounds": auto_rounds,
+                "status": latest["status"],
+                "current_round": latest["current_round"],
+                "max_rounds": latest["max_rounds"],
+                "mood_score": latest["mood_score"],
+                "current_seller_price": latest["latest_seller_price"],
+                "transcript": latest["transcript"],
+                "offer": offer_payload,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Auto market bargain failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

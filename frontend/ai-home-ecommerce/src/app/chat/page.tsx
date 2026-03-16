@@ -242,8 +242,8 @@ function SchemeRoundCard({
       className={cn(
         'mt-2 w-full rounded-xl border px-4 py-3 text-left transition-all',
         isActive
-          ? 'border-[#8dd4bc] bg-[#eaf6f1] ring-2 ring-[#16865f]/20 shadow-md'
-          : 'border-[#e6e0d8] bg-white hover:border-[#8dd4bc] hover:bg-[#f5f3ef] shadow-sm',
+          ? 'border-[#a5b4fc] bg-[#eef2ff] ring-2 ring-[#4f46e5]/20 shadow-md'
+          : 'border-[#e6e0d8] bg-white hover:border-[#a5b4fc] hover:bg-[#f5f3ef] shadow-sm',
       )}
     >
       <div className="flex items-center justify-between">
@@ -251,7 +251,7 @@ function SchemeRoundCard({
           <div className={cn(
             'flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold',
             isActive
-              ? 'bg-[#16865f] text-white'
+              ? 'bg-[#4f46e5] text-white'
               : 'bg-[#f5f3ef] text-[#6e6b62]',
           )}>
             v{round.roundNumber}
@@ -270,14 +270,14 @@ function SchemeRoundCard({
         </div>
         <div className="flex items-center gap-2">
           {totalSavings > 0 && (
-            <span className="flex items-center gap-0.5 rounded-full bg-[#eaf6f1] px-2 py-0.5 text-xs font-medium text-[#16865f]">
+            <span className="flex items-center gap-0.5 rounded-full bg-[#eef2ff] px-2 py-0.5 text-xs font-medium text-[#4f46e5]">
               <TrendingDown className="h-3 w-3" />
               -${totalSavings.toLocaleString()}
             </span>
           )}
           <ArrowRight className={cn(
             'h-4 w-4 transition-colors',
-            isActive ? 'text-[#16865f]' : 'text-[#afa9a0]',
+            isActive ? 'text-[#4f46e5]' : 'text-[#afa9a0]',
           )} />
         </div>
       </div>
@@ -285,7 +285,7 @@ function SchemeRoundCard({
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="mt-1.5 flex items-center gap-1 text-xs text-[#16865f] font-medium"
+          className="mt-1.5 flex items-center gap-1 text-xs text-[#4f46e5] font-medium"
         >
           <Check className="h-3 w-3" />
           Currently viewing
@@ -322,7 +322,7 @@ function MessageBubble({
         'flex h-9 w-9 shrink-0 items-center justify-center rounded-full',
         isUser
           ? 'bg-[#ede9e2] text-[#6e6b62]'
-          : 'bg-[#16865f] text-white',
+          : 'bg-[#6366f1] text-white',
       )}>
         {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
       </div>
@@ -331,7 +331,7 @@ function MessageBubble({
         <div className={cn(
           'rounded-2xl px-4 py-2.5',
           isUser
-            ? 'bg-[#16865f] text-white'
+            ? 'border border-[#c7d2fe] bg-[#e9e7ff] text-[#312e81]'
             : 'bg-white shadow-sm border border-[#e6e0d8] text-[#18170f]',
         )}>
           <TypewriterText text={message.content} enabled={enableTypewriter} />
@@ -362,7 +362,7 @@ function MessageBubble({
                 <button
                   key={`${message.id}-${action.id}`}
                   onClick={() => onIntentAction(action)}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-[#8dd4bc] bg-[#eaf6f1] px-3 py-1.5 text-xs font-medium text-[#0d5e42] transition-colors hover:border-[#16865f] hover:bg-[#dcf0e8]"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#a5b4fc] bg-[#eef2ff] px-3 py-1.5 text-xs font-medium text-[#3730a3] transition-colors hover:border-[#4f46e5] hover:bg-[#e0e7ff]"
                   title={action.description}
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -389,7 +389,7 @@ function WelcomeMessage({ nickname, visitCount }: { nickname?: string; visitCoun
       animate={{ opacity: 1, scale: 1 }}
       className="flex flex-col items-center justify-center py-10 text-center"
     >
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#16865f] shadow-lg shadow-[#16865f]/25">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#4f46e5] shadow-lg shadow-[#4f46e5]/25">
         <Sparkles className="h-7 w-7 text-white" />
       </div>
       {isReturn ? (
@@ -436,7 +436,7 @@ function ScenarioQuickJumpBar({
               key={action.id}
               type="button"
               onClick={() => onAction(action)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[#ddd6cc] bg-[#f5f3ef] px-3 py-1.5 text-xs font-medium text-[#6e6b62] transition-colors hover:border-[#8dd4bc] hover:bg-[#eaf6f1] hover:text-[#0d5e42]"
+              className="inline-flex items-center gap-1.5 rounded-full border border-[#ddd6cc] bg-[#f5f3ef] px-3 py-1.5 text-xs font-medium text-[#6e6b62] transition-colors hover:border-[#a5b4fc] hover:bg-[#eef2ff] hover:text-[#3730a3]"
               title={action.description}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -483,9 +483,9 @@ function PackagesPanel({
       <div className="flex shrink-0 items-center justify-between border-b border-[#e6e0d8] bg-white px-5 py-3">
         <div>
           <h3 className="flex items-center gap-2 text-sm font-semibold text-[#18170f]">
-            <Package className="h-4 w-4 text-[#16865f]" />
+            <Package className="h-4 w-4 text-[#4f46e5]" />
             AI-Curated Packages
-            <span className="rounded-full bg-[#eaf6f1] px-2 py-0.5 text-xs font-medium text-[#0d5e42]">
+            <span className="rounded-full bg-[#eef2ff] px-2 py-0.5 text-xs font-medium text-[#3730a3]">
               {schemes.length}
             </span>
             {activeRound && totalRounds > 1 && (
@@ -495,7 +495,7 @@ function PackagesPanel({
             )}
           </h3>
           {totalSavings > 0 && (
-            <p className="mt-0.5 flex items-center gap-1 text-xs text-[#16865f]">
+            <p className="mt-0.5 flex items-center gap-1 text-xs text-[#4f46e5]">
               <TrendingDown className="h-3 w-3" />
               AI negotiated total savings of ${totalSavings.toLocaleString()}
             </p>
@@ -541,7 +541,7 @@ function PackagesPanel({
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-1.5 text-xs font-medium text-[#18170f]">
-                  <Check className="h-3.5 w-3.5 text-[#16865f]" />
+                  <Check className="h-3.5 w-3.5 text-[#4f46e5]" />
                   {selectedScheme.name}
                 </p>
                 <PriceDisplay
@@ -552,7 +552,7 @@ function PackagesPanel({
               </div>
               <button
                 onClick={() => onConfirmOrder(selectedScheme)}
-                className="flex shrink-0 items-center gap-1.5 rounded-xl bg-[#16865f] px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-[#16865f]/25 transition-all hover:scale-105 hover:bg-[#14a37a]"
+                className="flex shrink-0 items-center gap-1.5 rounded-xl bg-[#4f46e5] px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-[#4f46e5]/25 transition-all hover:scale-105 hover:bg-[#6366f1]"
               >
                 Confirm Order
                 <ArrowRight className="h-4 w-4" />
@@ -1047,7 +1047,7 @@ export default function ChatPage() {
   // ─── render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className={cn('flex h-screen flex-col bg-[#faf8f5] text-[#18170f]', plusJakarta.className)}>
+    <div className={cn('flex h-screen flex-col bg-[#f6f5ff] text-[#18170f]', plusJakarta.className)}>
       <div className="flex flex-1 overflow-hidden">
         <AnimatePresence>
           {sidebarOpen && <ChatSidebar />}
@@ -1055,25 +1055,25 @@ export default function ChatPage() {
         {!sidebarOpen && <ChatSidebar />}
         {isHeroMode ? (
           <div className="relative flex flex-1 items-center justify-center overflow-y-auto px-6 py-10">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_65%_35%,rgba(22,134,95,0.08),transparent_48%)]" />
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_65%_35%,rgba(79,70,229,0.12),transparent_48%)]" />
             <div className="relative z-10 flex w-full max-w-4xl flex-col items-center text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#16865f] shadow-lg shadow-[#16865f]/25">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#4f46e5] shadow-lg shadow-[#4f46e5]/25">
                 <Sparkles className="h-7 w-7 text-white" />
               </div>
-              <div className="mt-6 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#12a374]">
-                <span className="h-2 w-2 rounded-full bg-[#12a374] shadow-[0_0_0_4px_rgba(18,163,116,0.18)]" />
+              <div className="mt-6 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#6366f1]">
+                <span className="h-2 w-2 rounded-full bg-[#6366f1] shadow-[0_0_0_4px_rgba(99,102,241,0.22)]" />
                 Your genie is ready
               </div>
               <h1 className={cn('mt-5 max-w-3xl text-[44px] leading-[1.16] text-[#18170f]', lora.className)}>
                 Tell me what you want.
                 <br />
-                I&apos;ll get you the <em className="text-[#16865f]">best deal.</em>
+                I&apos;ll get you the <em className="text-[#4f46e5]">best deal.</em>
               </h1>
               <p className="mt-4 max-w-xl text-[22px] leading-relaxed text-[#6e6b62]">
                 Describe anything you want to buy. MartGennie compares prices, finds deals, and negotiates.
               </p>
 
-              <div className="mt-8 w-full rounded-[24px] border border-[#ddd6cc] bg-white p-4 shadow-[0_6px_28px_rgba(0,0,0,0.08)] focus-within:border-[#8dd4bc] focus-within:ring-4 focus-within:ring-[#16865f]/10">
+              <div className="mt-8 w-full rounded-[24px] border border-[#ddd6cc] bg-white p-4 shadow-[0_6px_28px_rgba(0,0,0,0.08)] focus-within:border-[#a5b4fc] focus-within:ring-4 focus-within:ring-[#4f46e5]/10">
                 <ScenarioQuickJumpBar
                   actions={SCENARIO_QUICK_ACTIONS}
                   onAction={handleScenarioNavigate}
@@ -1098,8 +1098,8 @@ export default function ChatPage() {
                         className={cn(
                           'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
                           activePromptChips.includes(chip)
-                            ? 'border-[#8dd4bc] bg-[#eaf6f1] text-[#0d5e42]'
-                            : 'border-[#ddd6cc] bg-[#f5f3ef] text-[#6e6b62] hover:border-[#8dd4bc] hover:bg-[#eaf6f1] hover:text-[#0d5e42]'
+                            ? 'border-[#a5b4fc] bg-[#eef2ff] text-[#3730a3]'
+                            : 'border-[#ddd6cc] bg-[#f5f3ef] text-[#6e6b62] hover:border-[#a5b4fc] hover:bg-[#eef2ff] hover:text-[#3730a3]'
                         )}
                       >
                         {chip}
@@ -1112,7 +1112,7 @@ export default function ChatPage() {
                     className={cn(
                       'flex h-10 w-10 items-center justify-center rounded-xl transition-all',
                       inputValue.trim() && !isLoading
-                        ? 'bg-[#16865f] text-white shadow-lg shadow-[#16865f]/30 hover:bg-[#14a37a]'
+                        ? 'bg-[#4f46e5] text-white shadow-lg shadow-[#4f46e5]/30 hover:bg-[#6366f1]'
                         : 'cursor-not-allowed bg-[#ede9e2] text-[#afa9a0]',
                     )}
                   >
@@ -1129,7 +1129,7 @@ export default function ChatPage() {
                   <button
                     key={p}
                     onClick={() => applyPrompt(p)}
-                    className="rounded-full border border-[#ddd6cc] bg-white px-4 py-2 text-sm text-[#6e6b62] transition-colors hover:border-[#8dd4bc] hover:bg-[#eaf6f1] hover:text-[#0d5e42]"
+                    className="rounded-full border border-[#ddd6cc] bg-white px-4 py-2 text-sm text-[#6e6b62] transition-colors hover:border-[#a5b4fc] hover:bg-[#eef2ff] hover:text-[#3730a3]"
                   >
                     {p}
                   </button>
@@ -1145,14 +1145,14 @@ export default function ChatPage() {
                     className={cn(
                       'rounded-full border px-4 py-2 text-sm transition-colors',
                       activeCategory === item.label
-                        ? 'border-[#8dd4bc] bg-[#eaf6f1] text-[#0d5e42]'
+                        ? 'border-[#a5b4fc] bg-[#eef2ff] text-[#3730a3]'
                         : 'border-[#ddd6cc] bg-white text-[#6e6b62] hover:border-[#cfc7bc] hover:bg-[#f5f3ef]'
                     )}
                   >
                     <span>{item.label}</span>
                     <span className={cn(
                       'ml-2 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase',
-                      item.state === 'live' ? 'bg-[#d7f0e6] text-[#0d5e42]' : item.state === 'soon' ? 'bg-[#fef3c7] text-[#b45309]' : 'bg-[#ede9e2] text-[#8a857d]'
+                      item.state === 'live' ? 'bg-[#d7f0e6] text-[#3730a3]' : item.state === 'soon' ? 'bg-[#fef3c7] text-[#b45309]' : 'bg-[#ede9e2] text-[#8a857d]'
                     )}>
                       {item.state}
                     </span>
@@ -1232,7 +1232,7 @@ export default function ChatPage() {
                   actions={SCENARIO_QUICK_ACTIONS}
                   onAction={handleScenarioNavigate}
                 />
-                <div className="flex items-center gap-2 rounded-2xl border border-[#d9d3ca] bg-white p-2 shadow-[0_2px_16px_rgba(0,0,0,0.06)] focus-within:border-[#8dd4bc] focus-within:bg-white focus-within:ring-4 focus-within:ring-[#16865f]/10">
+                <div className="flex items-center gap-2 rounded-2xl border border-[#d9d3ca] bg-white p-2 shadow-[0_2px_16px_rgba(0,0,0,0.06)] focus-within:border-[#a5b4fc] focus-within:bg-white focus-within:ring-4 focus-within:ring-[#4f46e5]/10">
                   <input
                     ref={inputRef}
                     type="text"
@@ -1249,7 +1249,7 @@ export default function ChatPage() {
                     className={cn(
                       'flex h-10 w-10 items-center justify-center rounded-xl transition-all',
                       inputValue.trim() && !isLoading
-                        ? 'bg-[#16865f] text-white shadow-lg shadow-[#16865f]/25 hover:bg-[#14a37a]'
+                        ? 'bg-[#4f46e5] text-white shadow-lg shadow-[#4f46e5]/25 hover:bg-[#6366f1]'
                         : 'cursor-not-allowed bg-[#ede9e2] text-[#afa9a0]',
                     )}
                   >
@@ -1266,19 +1266,19 @@ export default function ChatPage() {
                 document.body.style.cursor = 'col-resize';
                 document.body.style.userSelect = 'none';
               }}
-              className="group relative w-2 shrink-0 cursor-col-resize bg-[#f1ede6]"
+              className="group relative w-2 shrink-0 cursor-col-resize bg-[#f0efff]"
             >
-              <div className="absolute left-1/2 top-1/2 h-16 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#d2cbc1] transition-colors group-hover:bg-[#8dd4bc]" />
+              <div className="absolute left-1/2 top-1/2 h-16 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#c7c3ef] transition-colors group-hover:bg-[#a5b4fc]" />
             </div>
 
             <div
               ref={rightPanelRef}
-              className="flex shrink-0 flex-col bg-[#f5f3ef]"
+              className="flex shrink-0 flex-col bg-[#f5f4ff]"
               style={{ width: `${rightPanelWidth}px` }}
             >
 
               <div className={cn(
-                'shrink-0 overflow-y-auto border-b border-[#e6e0d8] transition-all duration-500',
+                'shrink-0 overflow-y-auto border-b border-[#e0dbff] transition-all duration-500',
                 hasSchemes ? '' : 'flex-1',
               )}
               style={hasSchemes ? { height: `${topPanelRatio}%` } : undefined}
@@ -1292,8 +1292,8 @@ export default function ChatPage() {
                     />
                   ) : (
                     <div className="flex h-full flex-col items-center justify-center py-10 text-center">
-                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#eaf6f1]">
-                        <Sparkles className="h-7 w-7 text-[#16865f]" />
+                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#eef2ff]">
+                        <Sparkles className="h-7 w-7 text-[#4f46e5]" />
                       </div>
                       <p className="mt-4 text-sm font-medium text-[#18170f]">AI Agent Activity Log</p>
                       <p className="mt-1 text-xs text-[#afa9a0]">Agent steps will appear here while processing</p>
@@ -1303,7 +1303,7 @@ export default function ChatPage() {
               </div>
 
               {lastSkillInvocations.length > 0 && (
-                <div className="shrink-0 border-b border-[#e6e0d8] px-5 py-2">
+                <div className="shrink-0 border-b border-[#e0dbff] px-5 py-2">
                   <SkillResultsBadge invocations={lastSkillInvocations} />
                 </div>
               )}
@@ -1315,9 +1315,9 @@ export default function ChatPage() {
                     document.body.style.cursor = 'row-resize';
                     document.body.style.userSelect = 'none';
                   }}
-                  className="group relative h-2 shrink-0 cursor-row-resize bg-[#f1ede6]"
+                  className="group relative h-2 shrink-0 cursor-row-resize bg-[#f0efff]"
                 >
-                  <div className="absolute left-1/2 top-1/2 h-1 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#d2cbc1] transition-colors group-hover:bg-[#8dd4bc]" />
+                  <div className="absolute left-1/2 top-1/2 h-1 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#c7c3ef] transition-colors group-hover:bg-[#a5b4fc]" />
                 </div>
               )}
 

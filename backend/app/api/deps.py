@@ -1,7 +1,10 @@
 """
 API 依赖和工具函数
 """
+from dataclasses import dataclass
 from typing import Any, Optional
+
+from fastapi import Header, HTTPException
 
 
 def get_standard_response(
@@ -49,6 +52,55 @@ def get_error_response(
         "data": None,
         "error": error_detail
     }
+
+
+@dataclass
+class AuthenticatedUser:
+    """Authenticated request user identity."""
+
+    user_id: str
+    email: Optional[str] = None
+    name: Optional[str] = None
+
+
+def _extract_user_id_from_bearer_token(authorization: Optional[str]) -> Optional[str]:
+    """
+    Fallback parser for bearer token that carries an inline uid marker.
+    Expected format: "Bearer uid:<user_id>".
+    """
+    if not authorization:
+        return None
+
+    if not authorization.lower().startswith("bearer "):
+        return None
+
+    token = authorization.split(" ", 1)[1].strip()
+    if token.startswith("uid:") and len(token) > 4:
+        return token[4:]
+    return None
+
+
+async def get_current_user(
+    authorization: Optional[str] = Header(default=None),
+    x_user_id: Optional[str] = Header(default=None),
+    x_user_email: Optional[str] = Header(default=None),
+    x_user_name: Optional[str] = Header(default=None),
+) -> AuthenticatedUser:
+    """
+    Resolve current authenticated user from request headers.
+
+    Frontend is expected to send X-User-Id from Google-authenticated session.
+    """
+    user_id = x_user_id or _extract_user_id_from_bearer_token(authorization)
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    return AuthenticatedUser(
+        user_id=user_id,
+        email=x_user_email,
+        name=x_user_name,
+    )
 
 
 class PaginationParams:

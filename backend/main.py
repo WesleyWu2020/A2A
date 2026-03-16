@@ -134,7 +134,7 @@ async def root():
     """API 根路径"""
     return {
         "code": 200,
-        "message": "Welcome to Home AI Design API",
+        "message": "Welcome to MartGenie",
         "data": {
             "name": settings.APP_NAME,
             "version": settings.APP_VERSION,

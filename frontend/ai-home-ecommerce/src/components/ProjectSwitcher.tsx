@@ -8,11 +8,8 @@ import {
   Check,
   Trash2,
   ChevronDown,
-  Settings,
-  Star,
 } from 'lucide-react';
-import { useProjectStore, DEMO_USER_ID } from '@/store';
-import { ProjectDesign, ProjectContext } from '@/types';
+import { useProjectStore } from '@/store';
 
 interface ProjectSwitcherProps {
   compact?: boolean;

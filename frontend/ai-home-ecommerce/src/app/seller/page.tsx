@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { apiClient } from '@/lib/api';
-import { DEMO_USER_ID } from '@/store';
+import { getCurrentUserId } from '@/lib/user-identity';
 import type {
   SellerAgentStrategy,
   SellerProductPayload,
@@ -167,7 +167,7 @@ export default function SellerWorkspacePage() {
     setMonitorLoading(true);
     setMonitorError('');
     try {
-      const response = await apiClient.listConversations(DEMO_USER_ID, 12);
+      const response = await apiClient.listConversations(getCurrentUserId(), 12);
       const now = Date.now();
       const ranked = (response.data.conversations || [])
         .map((item) => {
