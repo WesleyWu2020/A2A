@@ -33,7 +33,14 @@ interface ChatState {
   setSessionId: (sessionId: string | null) => void;
   setIsLoading: (isLoading: boolean) => void;
   setCurrentStage: (stage: AgentStageInfo | null) => void;
-  sendMessage: (content: string, options?: { onToken?: (text: string) => void }) => Promise<void>;
+  sendMessage: (
+    content: string,
+    options?: {
+      onToken?: (text: string) => void;
+      requestContent?: string;
+      requestPreferences?: Record<string, unknown>;
+    }
+  ) => Promise<void>;
   clearMessages: () => void;
   initializeSession: () => void;
   loadMessages: (messages: ChatMessage[]) => void;
@@ -90,11 +97,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     setIsLoading(true);
 
+    const backendContent = options?.requestContent || content;
+
     try {
       let streamedText = '';
       const streamResult = await apiClient.sendChatMessageStream({
         sessionId: sessionId || undefined,
-        message: content,
+        message: backendContent,
+        preferences: options?.requestPreferences,
         context: messages,
       }, {
         onStart: (data) => {

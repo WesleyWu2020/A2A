@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { Lora, Plus_Jakarta_Sans } from 'next/font/google';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send,
@@ -14,10 +15,13 @@ import {
   Package,
   TrendingDown,
   RefreshCw,
-  Heart,
-  Settings,
+  Home,
+  ShoppingBag,
+  Store,
+  CircleUserRound,
+  MessageCircle,
 } from 'lucide-react';
-import { Header } from '@/components/Header';
+import type { LucideIcon } from 'lucide-react';
 import { AgentTimeline } from '@/components/AgentTimeline';
 import { ProductCard } from '@/components/ProductCard';
 import { SchemeCard } from '@/components/SchemeCard';
@@ -26,9 +30,6 @@ import { PriceDisplay } from '@/components/PriceDisplay';
 import { ChatTypingIndicator } from '@/components/LoadingSpinner';
 import { ContextPins } from '@/components/ContextPins';
 import { ImplicitPreferenceCard } from '@/components/ImplicitPreferenceCard';
-import { ProjectSwitcher } from '@/components/ProjectSwitcher';
-import { ProjectSettingsPanel } from '@/components/ProjectSettingsPanel';
-import { FavoritesPanel } from '../../components/FavoritesPanel';
 import { SkillResultsBadge } from '@/components/SkillResultsBadge';
 import { ChatSidebar } from '@/components/ChatSidebar';
 import { useChatStore, useAgentTimelineStore, useSchemeStore, useOrderStore, useMemoryStore, useProjectStore, useConversationStore } from '@/store';
@@ -44,12 +45,64 @@ import { enrichSchemesWithResolvedImages } from '@/lib/scheme-image-resolver';
 
 // ─── quick prompts ────────────────────────────────────────────────────────────
 
-const quickPrompts = [
-  'Budget $3,000 — help me furnish a cozy living room, I have two cats so need pet-friendly fabric',
-  'Looking for Scandinavian-style bedroom furniture, prefer natural wood tones',
-  'Need a complete home office setup, ergonomic and modern',
-  'Kid-friendly furniture for a 10-year-old\'s bedroom, safe and eco materials',
-];
+const categoryQuickPrompts: Record<string, string[]> = {
+  'Home & Furniture': [
+    'Grey modular sofa under $900',
+    'Bedside lamp with warm light',
+    'Mid-century coffee table',
+    'King bed frame, solid wood',
+  ],
+  Fashion: [
+    'Neutral trench coat under $180',
+    'White sneakers for daily commute',
+    'Minimal leather tote for office',
+    'Breathable running outfit set',
+  ],
+  Electronics: [
+    'Noise-canceling earbuds under $120',
+    '27-inch 4K monitor for Mac',
+    'Robot vacuum for pet hair',
+    'Compact projector for bedroom',
+  ],
+  Beauty: [
+    'Gentle skincare set for dry skin',
+    'Hair dryer with low heat damage',
+    'Everyday makeup starter kit',
+    'Fragrance under $80 with warm notes',
+  ],
+  Kitchen: [
+    'Air fryer under $120',
+    'Stainless cookware set for induction',
+    'Compact espresso machine',
+    'Meal prep containers set',
+  ],
+  Gaming: [
+    'Mechanical keyboard for FPS',
+    'Gaming chair under $250',
+    '144Hz monitor for PS5',
+    'Low-latency wireless headset',
+  ],
+};
+
+const promptChips = ['Home & Furniture', 'Best Price', 'Fast Shipping'];
+
+const categoryPills = [
+  { label: 'Home & Furniture', state: 'live' },
+  { label: 'Fashion', state: 'soon' },
+  { label: 'Electronics', state: 'soon' },
+  { label: 'Beauty', state: 'soon' },
+  { label: 'Kitchen', state: 'soon' },
+  { label: 'Gaming', state: 'later' },
+] as const;
+
+const categoryInputSeeds: Record<string, string> = {
+  'Home & Furniture': 'Help me find home furniture with good value and delivery options.',
+  Fashion: 'I am shopping for fashion items with comfort and style in mind.',
+  Electronics: 'Recommend reliable electronics with strong value for money.',
+  Beauty: 'Help me choose beauty products with safe ingredients and good reviews.',
+  Kitchen: 'I need practical kitchen products with durable quality.',
+  Gaming: 'Recommend gaming gear with great performance and low latency.',
+};
 
 const SUMMARIZING_STATUS_ROTATION = [
   'Compiling 3 curated packages with negotiated prices...',
@@ -58,6 +111,69 @@ const SUMMARIZING_STATUS_ROTATION = [
 ];
 
 const RIGHT_PANEL_WIDTH_STORAGE_KEY = 'chat_right_panel_width';
+const CHAT_PREFERENCE_STORAGE_PREFIX = 'chat_preferences';
+const CHAT_PREFERENCE_DRAFT_KEY = `${CHAT_PREFERENCE_STORAGE_PREFIX}:draft`;
+
+interface ScenarioQuickAction {
+  id: string;
+  label: string;
+  route: string;
+  description: string;
+  icon: LucideIcon;
+  keywords: string[];
+}
+
+const SCENARIO_QUICK_ACTIONS: ScenarioQuickAction[] = [
+  {
+    id: 'go-home',
+    label: 'Home',
+    route: '/',
+    description: 'Back to homepage',
+    icon: Home,
+    keywords: ['home', 'homepage', '首页', '回到首页'],
+  },
+  {
+    id: 'go-plaza',
+    label: 'Plaza',
+    route: '/plaza',
+    description: 'Browse products',
+    icon: ShoppingBag,
+    keywords: ['plaza', 'browse', 'discover', '逛', '广场', '看看商品', '商品'],
+  },
+  {
+    id: 'go-seller',
+    label: 'Seller Workspace',
+    route: '/seller',
+    description: 'Manage seller tasks',
+    icon: Store,
+    keywords: ['seller', 'workspace', '店铺', '卖家', '商家', '工作台'],
+  },
+  {
+    id: 'go-order',
+    label: 'My Order',
+    route: '/order',
+    description: 'Check order status',
+    icon: Package,
+    keywords: ['order', 'shipping', 'delivery', '物流', '订单', '到哪', '跟踪', 'track'],
+  },
+  {
+    id: 'go-profile',
+    label: 'My Profile',
+    route: '/profile',
+    description: 'View my profile',
+    icon: CircleUserRound,
+    keywords: ['profile', 'account', 'preference', '个人', '账号', '偏好', '资料'],
+  },
+];
+
+function getPreferenceStorageKey(conversationId: string | null) {
+  return conversationId
+    ? `${CHAT_PREFERENCE_STORAGE_PREFIX}:${conversationId}`
+    : CHAT_PREFERENCE_DRAFT_KEY;
+}
+
+const lora = Lora({ subsets: ['latin'], weight: ['400', '500'] });
+const plusJakarta = Plus_Jakarta_Sans({ subsets: ['latin'], weight: ['400', '500', '600'] });
 
 function TypewriterText({ text, enabled }: { text: string; enabled: boolean }) {
   const [displayed, setDisplayed] = useState(enabled ? '' : text);
@@ -81,7 +197,22 @@ function TypewriterText({ text, enabled }: { text: string; enabled: boolean }) {
     return () => clearInterval(timer);
   }, [text, enabled]);
 
-  return <p className="text-sm leading-relaxed">{displayed}</p>;
+  return <p className="text-sm leading-relaxed text-[#18170f]">{displayed}</p>;
+}
+
+function detectScenarioIntents(content: string, userContext?: string): ScenarioQuickAction[] {
+  const source = `${content} ${userContext ?? ''}`.toLowerCase();
+  const matched: ScenarioQuickAction[] = [];
+
+  for (const action of SCENARIO_QUICK_ACTIONS) {
+    const hit = action.keywords.some((kw) => source.includes(kw.toLowerCase()));
+    if (hit) {
+      matched.push(action);
+    }
+  }
+
+  // Keep results concise and actionable.
+  return matched.slice(0, 3);
 }
 
 // ─── sub-components ───────────────────────────────────────────────────────────
@@ -111,8 +242,8 @@ function SchemeRoundCard({
       className={cn(
         'mt-2 w-full rounded-xl border px-4 py-3 text-left transition-all',
         isActive
-          ? 'border-indigo-400 bg-indigo-50 ring-2 ring-indigo-500/20 shadow-md'
-          : 'border-slate-200 bg-white hover:border-indigo-200 hover:bg-indigo-50/40 shadow-sm',
+          ? 'border-[#8dd4bc] bg-[#eaf6f1] ring-2 ring-[#16865f]/20 shadow-md'
+          : 'border-[#e6e0d8] bg-white hover:border-[#8dd4bc] hover:bg-[#f5f3ef] shadow-sm',
       )}
     >
       <div className="flex items-center justify-between">
@@ -120,33 +251,33 @@ function SchemeRoundCard({
           <div className={cn(
             'flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold',
             isActive
-              ? 'bg-indigo-600 text-white'
-              : 'bg-slate-100 text-slate-600',
+              ? 'bg-[#16865f] text-white'
+              : 'bg-[#f5f3ef] text-[#6e6b62]',
           )}>
             v{round.roundNumber}
           </div>
           <div>
-            <p className="text-sm font-semibold text-slate-900">
+            <p className="text-sm font-semibold text-[#18170f]">
               Scheme v{round.roundNumber}
             </p>
-            <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">
+            <p className="text-xs text-[#6e6b62] mt-0.5 line-clamp-1">
               {round.summary}
             </p>
-            <p className="text-[11px] text-slate-400 mt-0.5">
+            <p className="text-[11px] text-[#afa9a0] mt-0.5">
               Generated at {generatedTime}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {totalSavings > 0 && (
-            <span className="flex items-center gap-0.5 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+            <span className="flex items-center gap-0.5 rounded-full bg-[#eaf6f1] px-2 py-0.5 text-xs font-medium text-[#16865f]">
               <TrendingDown className="h-3 w-3" />
               -${totalSavings.toLocaleString()}
             </span>
           )}
           <ArrowRight className={cn(
             'h-4 w-4 transition-colors',
-            isActive ? 'text-indigo-600' : 'text-slate-400',
+            isActive ? 'text-[#16865f]' : 'text-[#afa9a0]',
           )} />
         </div>
       </div>
@@ -154,7 +285,7 @@ function SchemeRoundCard({
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="mt-1.5 flex items-center gap-1 text-xs text-indigo-600 font-medium"
+          className="mt-1.5 flex items-center gap-1 text-xs text-[#16865f] font-medium"
         >
           <Check className="h-3 w-3" />
           Currently viewing
@@ -169,11 +300,15 @@ function MessageBubble({
   schemeRound,
   activeRoundId,
   onSwitchRound,
+  intentActions,
+  onIntentAction,
 }: {
   message: ChatMessage;
   schemeRound?: SchemeRound;
   activeRoundId: string | null;
   onSwitchRound: (roundId: string) => void;
+  intentActions?: ScenarioQuickAction[];
+  onIntentAction?: (action: ScenarioQuickAction) => void;
 }) {
   const isUser = message.role === 'user';
   const enableTypewriter = message.role === 'assistant' && message.type !== 'loading';
@@ -186,8 +321,8 @@ function MessageBubble({
       <div className={cn(
         'flex h-9 w-9 shrink-0 items-center justify-center rounded-full',
         isUser
-          ? 'bg-indigo-100 text-indigo-600'
-          : 'bg-gradient-to-br from-violet-500 to-indigo-600 text-white',
+          ? 'bg-[#ede9e2] text-[#6e6b62]'
+          : 'bg-[#16865f] text-white',
       )}>
         {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
       </div>
@@ -196,8 +331,8 @@ function MessageBubble({
         <div className={cn(
           'rounded-2xl px-4 py-2.5',
           isUser
-            ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white'
-            : 'bg-white shadow-sm border border-slate-100 text-slate-900',
+            ? 'bg-[#16865f] text-white'
+            : 'bg-white shadow-sm border border-[#e6e0d8] text-[#18170f]',
         )}>
           <TypewriterText text={message.content} enabled={enableTypewriter} />
         </div>
@@ -219,7 +354,26 @@ function MessageBubble({
           />
         )}
 
-        <span className="mt-1 text-xs text-slate-400">
+        {!!intentActions?.length && onIntentAction && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {intentActions.map((action) => {
+              const Icon = action.icon;
+              return (
+                <button
+                  key={`${message.id}-${action.id}`}
+                  onClick={() => onIntentAction(action)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#8dd4bc] bg-[#eaf6f1] px-3 py-1.5 text-xs font-medium text-[#0d5e42] transition-colors hover:border-[#16865f] hover:bg-[#dcf0e8]"
+                  title={action.description}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {action.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <span className="mt-1 text-xs text-[#afa9a0]">
           {new Date(message.timestamp).toLocaleTimeString()}
         </span>
       </div>
@@ -235,29 +389,63 @@ function WelcomeMessage({ nickname, visitCount }: { nickname?: string; visitCoun
       animate={{ opacity: 1, scale: 1 }}
       className="flex flex-col items-center justify-center py-10 text-center"
     >
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/25">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#16865f] shadow-lg shadow-[#16865f]/25">
         <Sparkles className="h-7 w-7 text-white" />
       </div>
       {isReturn ? (
         <>
-          <h2 className="mt-5 text-xl font-bold text-slate-900">
+          <h2 className={cn('mt-5 text-xl text-[#18170f]', lora.className)}>
             Welcome back{nickname ? `, ${nickname}` : ''}! 👋
           </h2>
-          <p className="mt-2 max-w-sm text-sm text-slate-500">
+          <p className="mt-2 max-w-sm text-sm text-[#6e6b62]">
             Your AI home assistant remembers your preferences. Tell me what you&apos;re looking for today.
           </p>
         </>
       ) : (
         <>
-          <h2 className="mt-5 text-xl font-bold text-slate-900">
+          <h2 className={cn('mt-5 text-xl text-[#18170f]', lora.className)}>
             I&apos;m Your AI Home Furnishing Assistant
           </h2>
-          <p className="mt-2 max-w-sm text-sm text-slate-500">
+          <p className="mt-2 max-w-sm text-sm text-[#6e6b62]">
             Tell me what you need — I&apos;ll search, negotiate prices, and build curated packages for you.
           </p>
         </>
       )}
     </motion.div>
+  );
+}
+
+function ScenarioQuickJumpBar({
+  actions,
+  onAction,
+}: {
+  actions: ScenarioQuickAction[];
+  onAction: (action: ScenarioQuickAction) => void;
+}) {
+  return (
+    <div className="mb-2">
+      <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.1em] text-[#8f897f]">
+        <MessageCircle className="h-3 w-3" />
+        Quick Navigate
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {actions.map((action) => {
+          const Icon = action.icon;
+          return (
+            <button
+              key={action.id}
+              type="button"
+              onClick={() => onAction(action)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[#ddd6cc] bg-[#f5f3ef] px-3 py-1.5 text-xs font-medium text-[#6e6b62] transition-colors hover:border-[#8dd4bc] hover:bg-[#eaf6f1] hover:text-[#0d5e42]"
+              title={action.description}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {action.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -292,22 +480,22 @@ function PackagesPanel({
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
+      <div className="flex shrink-0 items-center justify-between border-b border-[#e6e0d8] bg-white px-5 py-3">
         <div>
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <Package className="h-4 w-4 text-indigo-600" />
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-[#18170f]">
+            <Package className="h-4 w-4 text-[#16865f]" />
             AI-Curated Packages
-            <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
+            <span className="rounded-full bg-[#eaf6f1] px-2 py-0.5 text-xs font-medium text-[#0d5e42]">
               {schemes.length}
             </span>
             {activeRound && totalRounds > 1 && (
-              <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700">
+              <span className="rounded-full bg-[#f5f3ef] px-2 py-0.5 text-xs font-medium text-[#6e6b62]">
                 v{activeRound.roundNumber} / {totalRounds}
               </span>
             )}
           </h3>
           {totalSavings > 0 && (
-            <p className="mt-0.5 flex items-center gap-1 text-xs text-emerald-600">
+            <p className="mt-0.5 flex items-center gap-1 text-xs text-[#16865f]">
               <TrendingDown className="h-3 w-3" />
               AI negotiated total savings of ${totalSavings.toLocaleString()}
             </p>
@@ -319,8 +507,8 @@ function PackagesPanel({
           className={cn(
             'flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs transition-colors',
             isLoading
-              ? 'cursor-not-allowed text-slate-300'
-              : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+              ? 'cursor-not-allowed text-[#c6c0b8]'
+              : 'text-[#6e6b62] hover:bg-[#f5f3ef] hover:text-[#18170f]'
           )}
         >
           <RefreshCw className={cn('h-3.5 w-3.5', isLoading ? 'animate-spin' : '')} />
@@ -348,12 +536,12 @@ function PackagesPanel({
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
-            className="shrink-0 border-t border-slate-200 bg-white px-4 py-3"
+            className="shrink-0 border-t border-[#e6e0d8] bg-white px-4 py-3"
           >
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-1.5 text-xs font-medium text-slate-900">
-                  <Check className="h-3.5 w-3.5 text-emerald-600" />
+                <p className="flex items-center gap-1.5 text-xs font-medium text-[#18170f]">
+                  <Check className="h-3.5 w-3.5 text-[#16865f]" />
                   {selectedScheme.name}
                 </p>
                 <PriceDisplay
@@ -364,7 +552,7 @@ function PackagesPanel({
               </div>
               <button
                 onClick={() => onConfirmOrder(selectedScheme)}
-                className="flex shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:scale-105 hover:shadow-indigo-500/40"
+                className="flex shrink-0 items-center gap-1.5 rounded-xl bg-[#16865f] px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-[#16865f]/25 transition-all hover:scale-105 hover:bg-[#14a37a]"
               >
                 Confirm Order
                 <ArrowRight className="h-4 w-4" />
@@ -392,6 +580,8 @@ export default function ChatPage() {
   const [topPanelRatio, setTopPanelRatio] = useState(42);
   const [rightPanelWidth, setRightPanelWidth] = useState(560);
   const [streamingPreview, setStreamingPreview] = useState('');
+  const [activePromptChips, setActivePromptChips] = useState<string[]>(['Home & Furniture']);
+  const [activeCategory, setActiveCategory] = useState<string>('Home & Furniture');
 
   // negotiation dialog
   const [negRecord, setNegRecord] = useState<NegotiationRecord | null>(null);
@@ -422,20 +612,19 @@ export default function ChatPage() {
     dismissImplicitPrompt,
   } = useMemoryStore();
 
-  const {
-    activeProject,
-    lastSkillInvocations,
-    loadProjects,
-  } = useProjectStore();
+  const { lastSkillInvocations } = useProjectStore();
 
-  const { initFromLocalStorage, sidebarOpen } = useConversationStore();
-
-  // project panels
-  const [showProjectSettings, setShowProjectSettings] = useState(false);
-  const [showFavorites, setShowFavorites] = useState(false);
+  const { initFromLocalStorage, sidebarOpen, activeConversationId } = useConversationStore();
 
   const hasSchemes = schemes.length > 0;
   const latestStage = stages.length > 0 ? stages[stages.length - 1] : null;
+  const isHeroMode = messages.length === 0 && !isLoading && !hasSchemes;
+  const quickPrompts = categoryQuickPrompts[activeCategory] ?? categoryQuickPrompts['Home & Furniture'];
+  const lastUserMessage = [...messages].reverse().find((msg) => msg.role === 'user') ?? null;
+  const lastAssistantMessage = [...messages].reverse().find((msg) => msg.role === 'assistant') ?? null;
+  const lastAssistantIntentActions = lastAssistantMessage
+    ? detectScenarioIntents(lastAssistantMessage.content, lastUserMessage?.content)
+    : [];
 
   // WebSocket (optional)
   useWebSocket(sessionId, {
@@ -449,9 +638,37 @@ export default function ChatPage() {
   useEffect(() => {
     initFromLocalStorage();
     loadUserMemory();
-    loadProjects();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const key = getPreferenceStorageKey(activeConversationId);
+    const raw = localStorage.getItem(key);
+
+    if (!raw) {
+      setActiveCategory('Home & Furniture');
+      setActivePromptChips(['Home & Furniture']);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as { activeCategory?: string; activePromptChips?: string[] };
+      const category = parsed.activeCategory || 'Home & Furniture';
+      const chips = Array.isArray(parsed.activePromptChips) ? parsed.activePromptChips : ['Home & Furniture'];
+      setActiveCategory(category);
+      setActivePromptChips(chips);
+    } catch {
+      setActiveCategory('Home & Furniture');
+      setActivePromptChips(['Home & Furniture']);
+    }
+  }, [activeConversationId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const key = getPreferenceStorageKey(activeConversationId);
+    localStorage.setItem(key, JSON.stringify({ activeCategory, activePromptChips }));
+  }, [activeConversationId, activeCategory, activePromptChips]);
 
   // Restore persisted right panel width (and re-clamp when sidebar visibility changes).
   useEffect(() => {
@@ -622,6 +839,7 @@ export default function ChatPage() {
   const handleSend = async () => {
     if (!inputValue.trim() || isLoading) return;
     const message = inputValue.trim();
+    const preferencePayload = buildBackendPreferencePayload();
     setInputValue('');
 
     setIsActive(true);
@@ -637,6 +855,7 @@ export default function ChatPage() {
 
     try {
       await sendMessage(message, {
+        requestPreferences: preferencePayload,
         onToken: (text) => {
           setStreamingPreview(text);
         },
@@ -676,8 +895,62 @@ export default function ChatPage() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
+  const buildPreferenceSuffix = useCallback(() => {
+    const parts: string[] = [];
+    if (activePromptChips.includes('Best Price')) {
+      parts.push('Prioritize the best total price.');
+    }
+    if (activePromptChips.includes('Fast Shipping')) {
+      parts.push('Prefer faster shipping options.');
+    }
+    if (activePromptChips.includes('Home & Furniture')) {
+      parts.push('Focus on home and furniture products.');
+    }
+    return parts.join(' ');
+  }, [activePromptChips]);
+
+  const buildBackendPreferencePayload = useCallback(() => {
+    return {
+      category: activeCategory,
+      active_filters: activePromptChips,
+      objectives: {
+        best_price: activePromptChips.includes('Best Price'),
+        fast_shipping: activePromptChips.includes('Fast Shipping'),
+        home_furniture_focus: activePromptChips.includes('Home & Furniture'),
+      },
+    };
+  }, [activeCategory, activePromptChips]);
+
   const applyPrompt = (prompt: string) => {
-    setInputValue(prompt);
+    const suffix = buildPreferenceSuffix();
+    setInputValue(suffix ? `${prompt}. ${suffix}` : prompt);
+    inputRef.current?.focus();
+  };
+
+  const togglePromptChip = (chip: string) => {
+    setActivePromptChips((prev) => {
+      if (prev.includes(chip)) {
+        return prev.filter((c) => c !== chip);
+      }
+      return [...prev, chip];
+    });
+  };
+
+  const handleCategorySelect = (label: string) => {
+    setActiveCategory(label);
+
+    if (label === 'Home & Furniture') {
+      setActivePromptChips((prev) => prev.includes('Home & Furniture') ? prev : [...prev, 'Home & Furniture']);
+    } else {
+      setActivePromptChips((prev) => prev.filter((chip) => chip !== 'Home & Furniture'));
+    }
+
+    setInputValue((prev) => {
+      if (prev.trim().length > 0) return prev;
+      const seed = categoryInputSeeds[label] ?? prev;
+      const suffix = buildPreferenceSuffix();
+      return suffix ? `${seed} ${suffix}` : seed;
+    });
     inputRef.current?.focus();
   };
 
@@ -712,6 +985,10 @@ export default function ChatPage() {
     router.push('/order');
   };
 
+  const handleScenarioNavigate = (action: ScenarioQuickAction) => {
+    router.push(action.route);
+  };
+
   const handleRefresh = async () => {
     if (isLoading) return;
     const latestUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content?.trim();
@@ -738,6 +1015,7 @@ export default function ChatPage() {
 
     try {
       await sendMessage(regeneratePrompt, {
+        requestPreferences: buildBackendPreferencePayload(),
         onToken: (text) => {
           setStreamingPreview(text);
         },
@@ -769,262 +1047,310 @@ export default function ChatPage() {
   // ─── render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-screen flex-col bg-slate-50">
-      <Header />
-
-      {/* ── Project Toolbar ── */}
-      <div className="shrink-0 flex items-center gap-2 border-b border-slate-200 bg-white px-4 py-2">
-        <ProjectSwitcher />
-        {activeProject && (
-          <>
-            <button
-              onClick={() => setShowProjectSettings(true)}
-              className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
-            >
-              <Settings className="h-3.5 w-3.5" />
-              Settings
-            </button>
-            <button
-              onClick={() => setShowFavorites(true)}
-              className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
-            >
-              <Heart className="h-3.5 w-3.5" />
-              Favorites
-            </button>
-          </>
-        )}
-      </div>
-
+    <div className={cn('flex h-screen flex-col bg-[#faf8f5] text-[#18170f]', plusJakarta.className)}>
       <div className="flex flex-1 overflow-hidden">
-
-        {/* ── Conversation Sidebar ── */}
         <AnimatePresence>
           {sidebarOpen && <ChatSidebar />}
         </AnimatePresence>
         {!sidebarOpen && <ChatSidebar />}
+        {isHeroMode ? (
+          <div className="relative flex flex-1 items-center justify-center overflow-y-auto px-6 py-10">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_65%_35%,rgba(22,134,95,0.08),transparent_48%)]" />
+            <div className="relative z-10 flex w-full max-w-4xl flex-col items-center text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#16865f] shadow-lg shadow-[#16865f]/25">
+                <Sparkles className="h-7 w-7 text-white" />
+              </div>
+              <div className="mt-6 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#12a374]">
+                <span className="h-2 w-2 rounded-full bg-[#12a374] shadow-[0_0_0_4px_rgba(18,163,116,0.18)]" />
+                Your genie is ready
+              </div>
+              <h1 className={cn('mt-5 max-w-3xl text-[44px] leading-[1.16] text-[#18170f]', lora.className)}>
+                Tell me what you want.
+                <br />
+                I&apos;ll get you the <em className="text-[#16865f]">best deal.</em>
+              </h1>
+              <p className="mt-4 max-w-xl text-[22px] leading-relaxed text-[#6e6b62]">
+                Describe anything you want to buy. MartGennie compares prices, finds deals, and negotiates.
+              </p>
 
-        {/* ── Left: Chat ── */}
-        <div className="flex flex-1 flex-col border-r border-slate-200 bg-white min-w-0">
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-5 py-5">
-            <div className="mx-auto max-w-xl space-y-5">
-              {messages.length === 0 ? (
-                <WelcomeMessage
-                  nickname={userMemory?.nickname}
-                  visitCount={userMemory?.visit_count}
+              <div className="mt-8 w-full rounded-[24px] border border-[#ddd6cc] bg-white p-4 shadow-[0_6px_28px_rgba(0,0,0,0.08)] focus-within:border-[#8dd4bc] focus-within:ring-4 focus-within:ring-[#16865f]/10">
+                <ScenarioQuickJumpBar
+                  actions={SCENARIO_QUICK_ACTIONS}
+                  onAction={handleScenarioNavigate}
                 />
-              ) : (
-                messages.map((msg) => (
-                  <MessageBubble
-                    key={msg.id}
-                    message={msg}
-                    schemeRound={msg.schemeRoundId ? schemeHistory.find(r => r.id === msg.schemeRoundId) : undefined}
-                    activeRoundId={activeRoundId}
-                    onSwitchRound={setActiveRound}
-                  />
-                ))
-              )}
-
-              {isLoading && (
-                <div className="space-y-2">
-                  <MessageBubble
-                    message={{
-                      id: 'assistant-streaming-preview',
-                      role: 'assistant',
-                      content: streamingPreview || 'Thinking',
-                      timestamp: new Date().toISOString(),
-                      type: 'loading',
-                    }}
-                    activeRoundId={activeRoundId}
-                    onSwitchRound={setActiveRound}
-                  />
-                  <div className="pl-12">
-                    <ChatTypingIndicator />
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="e.g. I want a grey modular sofa under $900, good quality, ships to LA..."
+                  className="w-full bg-transparent px-2 py-2 text-[15px] text-[#18170f] placeholder:text-[#b0aaa0] focus:outline-none"
+                  disabled={isLoading}
+                />
+                <div className="mt-3 flex items-center justify-between border-t border-[#eee8df] pt-3">
+                  <div className="flex flex-wrap gap-2">
+                    {promptChips.map((chip) => (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => togglePromptChip(chip)}
+                        className={cn(
+                          'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+                          activePromptChips.includes(chip)
+                            ? 'border-[#8dd4bc] bg-[#eaf6f1] text-[#0d5e42]'
+                            : 'border-[#ddd6cc] bg-[#f5f3ef] text-[#6e6b62] hover:border-[#8dd4bc] hover:bg-[#eaf6f1] hover:text-[#0d5e42]'
+                        )}
+                      >
+                        {chip}
+                      </button>
+                    ))}
                   </div>
+                  <button
+                    onClick={handleSend}
+                    disabled={!inputValue.trim() || isLoading}
+                    className={cn(
+                      'flex h-10 w-10 items-center justify-center rounded-xl transition-all',
+                      inputValue.trim() && !isLoading
+                        ? 'bg-[#16865f] text-white shadow-lg shadow-[#16865f]/30 hover:bg-[#14a37a]'
+                        : 'cursor-not-allowed bg-[#ede9e2] text-[#afa9a0]',
+                    )}
+                  >
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  </button>
                 </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-          </div>
+                <p className="mt-2 text-left text-xs text-[#8f897f]">
+                  Active: {activeCategory}{activePromptChips.length > 0 ? ` · ${activePromptChips.join(' · ')}` : ''}
+                </p>
+              </div>
 
-          {/* Context Pins — visible once the user has sent at least one message */}
-          {contextPins.length > 0 && (
-            <div className="shrink-0 border-t border-slate-100">
-              <ContextPins
-                pins={contextPins}
-                sessionId={sessionId}
-                onRemovePin={removeContextPin}
-              />
-            </div>
-          )}
-
-          {/* Implicit Preference Confirmation Card */}
-          {pendingImplicitPrompt && (
-            <div className="shrink-0">
-              <ImplicitPreferenceCard
-                prompt={pendingImplicitPrompt}
-                onConfirm={confirmImplicitPreference}
-                onDismiss={dismissImplicitPrompt}
-              />
-            </div>
-          )}
-
-          {/* Quick prompts — only when empty */}
-          {messages.length === 0 && (
-            <div className="shrink-0 border-t border-slate-100 px-5 py-3">
-              <p className="mb-2 text-xs text-slate-400">Try asking:</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="mt-5 flex w-full flex-wrap justify-center gap-2">
                 {quickPrompts.map((p) => (
                   <button
                     key={p}
                     onClick={() => applyPrompt(p)}
-                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+                    className="rounded-full border border-[#ddd6cc] bg-white px-4 py-2 text-sm text-[#6e6b62] transition-colors hover:border-[#8dd4bc] hover:bg-[#eaf6f1] hover:text-[#0d5e42]"
                   >
-                    {p.length > 55 ? p.slice(0, 52) + '…' : p}
+                    {p}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-10 flex w-full max-w-3xl flex-wrap justify-center gap-3">
+                {categoryPills.map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => handleCategorySelect(item.label)}
+                    className={cn(
+                      'rounded-full border px-4 py-2 text-sm transition-colors',
+                      activeCategory === item.label
+                        ? 'border-[#8dd4bc] bg-[#eaf6f1] text-[#0d5e42]'
+                        : 'border-[#ddd6cc] bg-white text-[#6e6b62] hover:border-[#cfc7bc] hover:bg-[#f5f3ef]'
+                    )}
+                  >
+                    <span>{item.label}</span>
+                    <span className={cn(
+                      'ml-2 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase',
+                      item.state === 'live' ? 'bg-[#d7f0e6] text-[#0d5e42]' : item.state === 'soon' ? 'bg-[#fef3c7] text-[#b45309]' : 'bg-[#ede9e2] text-[#8a857d]'
+                    )}>
+                      {item.state}
+                    </span>
                   </button>
                 ))}
               </div>
             </div>
-          )}
-
-          {/* Input */}
-          <div className="shrink-0 border-t border-slate-200 px-4 py-3">
-            <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-500/10">
-              <input
-                ref={inputRef}
-                type="text"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Describe your home furnishing needs..."
-                className="flex-1 bg-transparent px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
-                disabled={isLoading}
-              />
-              <button
-                onClick={handleSend}
-                disabled={!inputValue.trim() || isLoading}
-                className={cn(
-                  'flex h-10 w-10 items-center justify-center rounded-xl transition-all',
-                  inputValue.trim() && !isLoading
-                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40'
-                    : 'bg-slate-200 text-slate-400 cursor-not-allowed',
-                )}
-              >
-                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              </button>
-            </div>
-            <p className="mt-1.5 text-center text-xs text-slate-400">Press Enter to send</p>
           </div>
-        </div>
+        ) : (
+          <>
+            <div className="flex flex-1 min-w-0 flex-col border-r border-[#e6e0d8] bg-[#fffefc]">
+              <div className="flex-1 overflow-y-auto px-5 py-5">
+                <div className="mx-auto max-w-xl space-y-5">
+                  {messages.length === 0 ? (
+                    <WelcomeMessage
+                      nickname={userMemory?.nickname}
+                      visitCount={userMemory?.visit_count}
+                    />
+                  ) : (
+                    messages.map((msg) => (
+                      <MessageBubble
+                        key={msg.id}
+                        message={msg}
+                        schemeRound={msg.schemeRoundId ? schemeHistory.find(r => r.id === msg.schemeRoundId) : undefined}
+                        activeRoundId={activeRoundId}
+                        onSwitchRound={setActiveRound}
+                        intentActions={msg.id === lastAssistantMessage?.id ? lastAssistantIntentActions : []}
+                        onIntentAction={handleScenarioNavigate}
+                      />
+                    ))
+                  )}
 
-        <div
-          onMouseDown={() => {
-            isHorizontalResizingRef.current = true;
-            document.body.style.cursor = 'col-resize';
-            document.body.style.userSelect = 'none';
-          }}
-          className="group relative w-2 shrink-0 cursor-col-resize bg-slate-100"
-        >
-          <div className="absolute left-1/2 top-1/2 h-16 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-300 transition-colors group-hover:bg-indigo-400" />
-        </div>
+                  {isLoading && (
+                    <div className="space-y-2">
+                      <MessageBubble
+                        message={{
+                          id: 'assistant-streaming-preview',
+                          role: 'assistant',
+                          content: streamingPreview || 'Thinking',
+                          timestamp: new Date().toISOString(),
+                          type: 'loading',
+                        }}
+                        activeRoundId={activeRoundId}
+                        onSwitchRound={setActiveRound}
+                      />
+                      <div className="pl-12">
+                        <ChatTypingIndicator />
+                      </div>
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+              </div>
 
-        {/* ── Right: Timeline + Packages ── */}
-        <div
-          ref={rightPanelRef}
-          className="flex shrink-0 flex-col bg-slate-50"
-          style={{ width: `${rightPanelWidth}px` }}
-        >
-
-          {/* Right-top: Agent Activity Log */}
-          <div className={cn(
-            'shrink-0 overflow-y-auto border-b border-slate-200 transition-all duration-500',
-            hasSchemes ? '' : 'flex-1',
-          )}
-          style={hasSchemes ? { height: `${topPanelRatio}%` } : undefined}
-          >
-            <div className="p-5">
-              {(isActive || stages.length > 0) ? (
-                <AgentTimeline
-                  stages={stages}
-                  currentStage={latestStage}
-                  isActive={isActive}
-                />
-              ) : (
-                <div className="flex h-full flex-col items-center justify-center py-10 text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-100 to-violet-100">
-                    <Sparkles className="h-7 w-7 text-indigo-500" />
-                  </div>
-                  <p className="mt-4 text-sm font-medium text-slate-700">AI Agent Activity Log</p>
-                  <p className="mt-1 text-xs text-slate-400">Agent steps will appear here while processing</p>
-
-                  {/* Pro tips */}
-                  <div className="mt-6 w-full max-w-xs rounded-xl bg-amber-50 p-4 text-left">
-                    <h4 className="flex items-center gap-1.5 text-xs font-semibold text-amber-800">
-                      <Sparkles className="h-3.5 w-3.5" />
-                      Pro Tips
-                    </h4>
-                    <ul className="mt-2 space-y-1 text-xs text-amber-700">
-                      <li>• More details = better recommendations</li>
-                      <li>• Mention style, budget, and room size</li>
-                      <li>• AI automatically negotiates prices</li>
-                    </ul>
-                  </div>
+              {contextPins.length > 0 && (
+                <div className="shrink-0 border-t border-[#eee8df]">
+                  <ContextPins
+                    pins={contextPins}
+                    sessionId={sessionId}
+                    onRemovePin={removeContextPin}
+                  />
                 </div>
               )}
-            </div>
-          </div>
 
-          {/* Skill Check Results */}
-          {lastSkillInvocations.length > 0 && (
-            <div className="shrink-0 border-b border-slate-200 px-5 py-2">
-              <SkillResultsBadge invocations={lastSkillInvocations} />
-            </div>
-          )}
+              {pendingImplicitPrompt && (
+                <div className="shrink-0">
+                  <ImplicitPreferenceCard
+                    prompt={pendingImplicitPrompt}
+                    onConfirm={confirmImplicitPreference}
+                    onDismiss={dismissImplicitPrompt}
+                  />
+                </div>
+              )}
 
-          {hasSchemes && (
+              <div className="shrink-0 border-t border-[#e6e0d8] px-4 py-3">
+                <ScenarioQuickJumpBar
+                  actions={SCENARIO_QUICK_ACTIONS}
+                  onAction={handleScenarioNavigate}
+                />
+                <div className="flex items-center gap-2 rounded-2xl border border-[#d9d3ca] bg-white p-2 shadow-[0_2px_16px_rgba(0,0,0,0.06)] focus-within:border-[#8dd4bc] focus-within:bg-white focus-within:ring-4 focus-within:ring-[#16865f]/10">
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Describe your home furnishing needs..."
+                    className="flex-1 bg-transparent px-3 py-2.5 text-sm text-[#18170f] placeholder:text-[#afa9a0] focus:outline-none"
+                    disabled={isLoading}
+                  />
+                  <button
+                    onClick={handleSend}
+                    disabled={!inputValue.trim() || isLoading}
+                    className={cn(
+                      'flex h-10 w-10 items-center justify-center rounded-xl transition-all',
+                      inputValue.trim() && !isLoading
+                        ? 'bg-[#16865f] text-white shadow-lg shadow-[#16865f]/25 hover:bg-[#14a37a]'
+                        : 'cursor-not-allowed bg-[#ede9e2] text-[#afa9a0]',
+                    )}
+                  >
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="mt-1.5 text-center text-xs text-[#afa9a0]">Press Enter to send</p>
+              </div>
+            </div>
+
             <div
               onMouseDown={() => {
-                isVerticalResizingRef.current = true;
-                document.body.style.cursor = 'row-resize';
+                isHorizontalResizingRef.current = true;
+                document.body.style.cursor = 'col-resize';
                 document.body.style.userSelect = 'none';
               }}
-              className="group relative h-2 shrink-0 cursor-row-resize bg-slate-100"
+              className="group relative w-2 shrink-0 cursor-col-resize bg-[#f1ede6]"
             >
-              <div className="absolute left-1/2 top-1/2 h-1 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-300 transition-colors group-hover:bg-indigo-400" />
+              <div className="absolute left-1/2 top-1/2 h-16 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#d2cbc1] transition-colors group-hover:bg-[#8dd4bc]" />
             </div>
-          )}
 
-          {/* Right-bottom: Packages */}
-          <AnimatePresence>
-            {hasSchemes && (
-              <motion.div
-                key="packages"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 20 }}
-                transition={{ duration: 0.4 }}
-                className="flex-1 min-h-[200px] overflow-hidden"
+            <div
+              ref={rightPanelRef}
+              className="flex shrink-0 flex-col bg-[#f5f3ef]"
+              style={{ width: `${rightPanelWidth}px` }}
+            >
+
+              <div className={cn(
+                'shrink-0 overflow-y-auto border-b border-[#e6e0d8] transition-all duration-500',
+                hasSchemes ? '' : 'flex-1',
+              )}
+              style={hasSchemes ? { height: `${topPanelRatio}%` } : undefined}
               >
-                <PackagesPanel
-                  schemes={schemes}
-                  selectedSchemeId={selectedSchemeId}
-                  onSelectScheme={handleSelectScheme}
-                  onViewNegotiation={handleViewNegotiation}
-                  onConfirmOrder={handleConfirmOrder}
-                  onRefresh={handleRefresh}
-                  activeRound={schemeHistory.find(r => r.id === activeRoundId) ?? null}
-                  totalRounds={schemeHistory.length}
-                  isLoading={isLoading}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+                <div className="p-5">
+                  {(isActive || stages.length > 0) ? (
+                    <AgentTimeline
+                      stages={stages}
+                      currentStage={latestStage}
+                      isActive={isActive}
+                    />
+                  ) : (
+                    <div className="flex h-full flex-col items-center justify-center py-10 text-center">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#eaf6f1]">
+                        <Sparkles className="h-7 w-7 text-[#16865f]" />
+                      </div>
+                      <p className="mt-4 text-sm font-medium text-[#18170f]">AI Agent Activity Log</p>
+                      <p className="mt-1 text-xs text-[#afa9a0]">Agent steps will appear here while processing</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {lastSkillInvocations.length > 0 && (
+                <div className="shrink-0 border-b border-[#e6e0d8] px-5 py-2">
+                  <SkillResultsBadge invocations={lastSkillInvocations} />
+                </div>
+              )}
+
+              {hasSchemes && (
+                <div
+                  onMouseDown={() => {
+                    isVerticalResizingRef.current = true;
+                    document.body.style.cursor = 'row-resize';
+                    document.body.style.userSelect = 'none';
+                  }}
+                  className="group relative h-2 shrink-0 cursor-row-resize bg-[#f1ede6]"
+                >
+                  <div className="absolute left-1/2 top-1/2 h-1 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#d2cbc1] transition-colors group-hover:bg-[#8dd4bc]" />
+                </div>
+              )}
+
+              <AnimatePresence>
+                {hasSchemes && (
+                  <motion.div
+                    key="packages"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 20 }}
+                    transition={{ duration: 0.4 }}
+                    className="flex-1 min-h-[200px] overflow-hidden"
+                  >
+                    <PackagesPanel
+                      schemes={schemes}
+                      selectedSchemeId={selectedSchemeId}
+                      onSelectScheme={handleSelectScheme}
+                      onViewNegotiation={handleViewNegotiation}
+                      onConfirmOrder={handleConfirmOrder}
+                      onRefresh={handleRefresh}
+                      activeRound={schemeHistory.find(r => r.id === activeRoundId) ?? null}
+                      totalRounds={schemeHistory.length}
+                      isLoading={isLoading}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </>
+        )}
       </div>
 
       <NegotiationDialog isOpen={negOpen} onClose={() => setNegOpen(false)} record={negRecord} />
-      <ProjectSettingsPanel isOpen={showProjectSettings} onClose={() => setShowProjectSettings(false)} />
-      <FavoritesPanel isOpen={showFavorites} onClose={() => setShowFavorites(false)} />
     </div>
   );
 }

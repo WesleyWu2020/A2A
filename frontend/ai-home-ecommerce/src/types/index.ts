@@ -237,6 +237,7 @@ export interface AgentStageMessage {
 export interface ChatRequest {
   sessionId?: string;
   message: string;
+  preferences?: Record<string, unknown>;
   context?: ChatMessage[];
 }
 

@@ -80,6 +80,7 @@ class ChatRequest(BaseModel):
     """聊天请求"""
     session_id: Optional[str] = Field(default=None, description="会话 ID (auto-generated if omitted)")
     message: str = Field(..., description="用户消息")
+    preferences: Optional[Dict[str, Any]] = Field(default=None, description="结构化偏好上下文")
     stream: bool = Field(default=False, description="是否流式响应")
 
 

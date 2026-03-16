@@ -8,7 +8,7 @@ import random
 import json
 import asyncio
 import re
-from typing import Optional
+from typing import Optional, Any
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query
@@ -236,6 +236,34 @@ def _should_use_profile_context(message: str) -> bool:
         "根据我的profile",
     ]
     return any(t in text for t in triggers)
+
+
+def _build_structured_preference_context(preferences: Optional[dict[str, Any]]) -> str:
+    """Convert structured frontend preference JSON into a stable text context block."""
+    if not preferences:
+        return ""
+
+    category = str(preferences.get("category") or "").strip()
+    filters = preferences.get("active_filters") or []
+    objectives = preferences.get("objectives") or {}
+
+    filter_list = [str(f).strip() for f in filters if str(f).strip()]
+    if isinstance(objectives, dict):
+        enabled_objectives = [k for k, v in objectives.items() if bool(v)]
+    else:
+        enabled_objectives = []
+
+    lines = ["[Structured Preference Context]"]
+    if category:
+        lines.append(f"Preferred category: {category}")
+    if filter_list:
+        lines.append(f"Active filters: {', '.join(filter_list)}")
+    if enabled_objectives:
+        lines.append(f"Enabled objectives: {', '.join(enabled_objectives)}")
+
+    if len(lines) == 1:
+        return ""
+    return "\n".join(lines)
 
 
 async def _build_profile_prompt_context(
@@ -470,9 +498,11 @@ async def send_message(request: ChatRequest):
         else:
             current_state = create_initial_state(session_id)
 
-        # 运行 Agent 工作流（必要时注入长期记忆上下文）
+        # 运行 Agent 工作流（先注入结构化偏好，再按需注入长期记忆上下文）
+        preference_context = _build_structured_preference_context(request.preferences)
+        base_message = request.message if not preference_context else f"{request.message}\n\n{preference_context}"
         agent_message, used_profile_context = await _build_profile_prompt_context(
-            request.message, session_id, current_state
+            base_message, session_id, current_state
         )
 
         # ── Inject active project context + favorites RAG ─────────────────
@@ -634,9 +664,11 @@ async def send_message_stream(request: ChatRequest):
                 "data": json.dumps({"session_id": session_id})
             }
             
-            # 运行工作流（必要时注入长期记忆上下文）
+            # 运行工作流（先注入结构化偏好，再按需注入长期记忆上下文）
+            preference_context = _build_structured_preference_context(request.preferences)
+            base_message = request.message if not preference_context else f"{request.message}\n\n{preference_context}"
             agent_message, used_profile_context = await _build_profile_prompt_context(
-                request.message, session_id, current_state
+                base_message, session_id, current_state
             )
 
             # ── Inject active project context + favorites RAG ─────────────

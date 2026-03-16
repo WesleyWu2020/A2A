@@ -41,50 +41,50 @@ const stageConfig: Record<AgentStage, {
     label: 'Searching Catalog',
     description: 'AI Buyer searching 4,500+ products...',
     icon: Search,
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-50',
+    color: 'text-[#0d5e42]',
+    bgColor: 'bg-[#eaf6f1]',
   },
   filtering: {
     label: 'Filtering Results',
     description: 'Matching products to your requirements...',
     icon: Filter,
-    color: 'text-indigo-600',
-    bgColor: 'bg-indigo-50',
+    color: 'text-[#0d5e42]',
+    bgColor: 'bg-[#eaf6f1]',
   },
   inquiring: {
     label: 'Checking Prices',
     description: 'Getting latest pricing from sellers...',
     icon: MessageSquare,
-    color: 'text-violet-600',
-    bgColor: 'bg-violet-50',
+    color: 'text-[#0d5e42]',
+    bgColor: 'bg-[#eaf6f1]',
   },
   negotiating: {
     label: 'Negotiating',
     description: 'AI Agent negotiating best prices for you...',
     icon: Handshake,
-    color: 'text-amber-600',
-    bgColor: 'bg-amber-50',
+    color: 'text-[#b45309]',
+    bgColor: 'bg-[#fef3c7]',
   },
   summarizing: {
     label: 'Curating Packages',
     description: 'Compiling 3 optimized packages for you...',
     icon: FileCheck,
-    color: 'text-emerald-600',
-    bgColor: 'bg-emerald-50',
+    color: 'text-[#16865f]',
+    bgColor: 'bg-[#eaf6f1]',
   },
   completed: {
     label: 'Completed',
     description: 'All done! Your packages are ready.',
     icon: CheckCircle2,
-    color: 'text-emerald-600',
-    bgColor: 'bg-emerald-50',
+    color: 'text-[#16865f]',
+    bgColor: 'bg-[#eaf6f1]',
   },
   error: {
     label: 'Error',
     description: 'Something went wrong during processing',
     icon: XCircle,
-    color: 'text-red-600',
-    bgColor: 'bg-red-50',
+    color: 'text-[#e55b3c]',
+    bgColor: 'bg-[#fdf0ec]',
   },
 };
 
@@ -113,7 +113,7 @@ export function AgentTimeline({
 
   if (compact) {
     return (
-      <div className={cn('rounded-xl bg-white p-4 shadow-sm border border-slate-100', className)}>
+      <div className={cn('rounded-xl bg-white p-4 shadow-sm border border-[#e6e0d8]', className)}>
         <div className="flex items-center gap-3">
           {currentStage && currentStage.stage !== 'completed' && currentStage.stage !== 'error' ? (
             <>
@@ -135,21 +135,21 @@ export function AgentTimeline({
                     transition={{ duration: 0.3 }}
                     className={cn(
                       'h-full rounded-full',
-                      currentStage.stage === 'negotiating' ? 'bg-amber-500' : 'bg-indigo-500'
+                      currentStage.stage === 'negotiating' ? 'bg-[#d97706]' : 'bg-[#16865f]'
                     )}
                   />
                 </div>
               </div>
-              <span className="text-sm text-slate-500">{currentStage.progress}%</span>
+              <span className="text-sm text-[#6e6b62]">{currentStage.progress}%</span>
             </>
           ) : (
             <>
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#eaf6f1] text-[#16865f]">
                 <CheckCircle2 className="h-5 w-5" />
               </div>
               <div>
-                <p className="font-medium text-emerald-600">Done</p>
-                <p className="text-sm text-slate-500">Packages ready to view</p>
+                <p className="font-medium text-[#16865f]">Done</p>
+                <p className="text-sm text-[#6e6b62]">Packages ready to view</p>
               </div>
             </>
           )}
@@ -159,14 +159,14 @@ export function AgentTimeline({
   }
 
   return (
-    <div className={cn('rounded-2xl bg-white p-6 shadow-sm border border-slate-100', className)}>
-      <h3 className="text-lg font-semibold text-slate-900 mb-6">AI Agent Activity Log</h3>
+    <div className={cn('rounded-2xl bg-white p-6 shadow-sm border border-[#e6e0d8]', className)}>
+      <h3 className="mb-6 text-lg font-semibold text-[#18170f]">AI Agent Activity Log</h3>
       
       <div className="relative">
         {/* Progress Line */}
-        <div className="absolute left-5 top-0 bottom-0 w-0.5 bg-slate-100">
+        <div className="absolute bottom-0 left-5 top-0 w-0.5 bg-[#ede9e2]">
           <motion.div
-            className="absolute top-0 left-0 w-full bg-gradient-to-b from-indigo-500 to-violet-500"
+            className="absolute left-0 top-0 w-full bg-gradient-to-b from-[#16865f] to-[#8dd4bc]"
             initial={{ height: '0%' }}
             animate={{ 
               height: currentStageIndex >= 0 
@@ -201,10 +201,10 @@ export function AgentTimeline({
                 <div className={cn(
                   'relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-2 transition-all duration-300',
                   isCompleted
-                    ? 'border-emerald-500 bg-emerald-500 text-white'
+                    ? 'border-[#16865f] bg-[#16865f] text-white'
                     : isCurrent
                     ? cn('border-current', config.bgColor, config.color)
-                    : 'border-slate-200 bg-white text-slate-300'
+                    : 'border-[#e6e0d8] bg-white text-[#c6c0b8]'
                 )}>
                   {isCompleted ? (
                     <CheckCircle2 className="h-5 w-5" />
@@ -220,19 +220,19 @@ export function AgentTimeline({
                   <div className="flex items-center justify-between">
                     <h4 className={cn(
                       'font-medium',
-                      isCompleted || isCurrent ? 'text-slate-900' : 'text-slate-400'
+                      isCompleted || isCurrent ? 'text-[#18170f]' : 'text-[#afa9a0]'
                     )}>
                       {config.label}
                     </h4>
                     {isCurrent && (
-                      <span className="text-sm font-medium text-indigo-600">
+                      <span className="text-sm font-medium text-[#16865f]">
                         {currentStage?.progress}%
                       </span>
                     )}
                   </div>
                   <p className={cn(
                     'mt-0.5 text-sm',
-                    isCompleted || isCurrent ? 'text-slate-600' : 'text-slate-400'
+                    isCompleted || isCurrent ? 'text-[#6e6b62]' : 'text-[#afa9a0]'
                   )}>
                     {isCurrent && currentStage?.description 
                       ? currentStage.description 
@@ -246,14 +246,14 @@ export function AgentTimeline({
                         initial={{ width: 0 }}
                         animate={{ width: `${currentStage?.progress || 0}%` }}
                         transition={{ duration: 0.3 }}
-                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500"
+                        className="h-full rounded-full bg-gradient-to-r from-[#16865f] to-[#8dd4bc]"
                       />
                     </div>
                   )}
 
                   {/* Timestamp */}
                   {isCompleted && (
-                    <p className="mt-1 text-xs text-slate-400">
+                    <p className="mt-1 text-xs text-[#afa9a0]">
                       {new Date(stages.find(s => s.stage === stage)?.timestamp || '').toLocaleTimeString()}
                     </p>
                   )}

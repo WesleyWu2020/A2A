@@ -84,6 +84,7 @@ class ApiClient {
       body: JSON.stringify({
         session_id: request.sessionId,
         message: request.message,
+        preferences: request.preferences,
       }),
     });
   }
@@ -102,6 +103,7 @@ class ApiClient {
       body: JSON.stringify({
         session_id: request.sessionId,
         message: request.message,
+        preferences: request.preferences,
       }),
     });
 
